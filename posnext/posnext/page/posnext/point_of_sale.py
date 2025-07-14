@@ -121,6 +121,10 @@ def get_items(start, page_length, price_list, item_group, pos_profile, search_te
 	if search_term:
 		result = search_by_term(search_term, custom_show_alternative_item_for_pos_search, warehouse, price_list) or []
 		if result:
+			# If warehouse is group, update stock quantities for search results
+			if is_group and result.get("items"):
+				for item in result["items"]:
+					item["actual_qty"] = get_total_stock_from_warehouses(item["item_code"], child_warehouses)
 			return result
 
 	alt_items = []
@@ -220,7 +224,13 @@ def get_items(start, page_length, price_list, item_group, pos_profile, search_te
 			["uom"],
 			pluck="uom"
 		)
-		item.actual_qty, _ = get_stock_availability(item.item_code, warehouse)
+		
+		# ENHANCED: Calculate total stock from all child warehouses if warehouse is a group
+		if is_group:
+			item.actual_qty = get_total_stock_from_warehouses(item.item_code, child_warehouses)
+		else:
+			item.actual_qty, _ = get_stock_availability(item.item_code, warehouse)
+		
 		item.uom = item.stock_uom
 
 		item_price = frappe.get_all(
@@ -253,6 +263,118 @@ def get_items(start, page_length, price_list, item_group, pos_profile, search_te
 			})
 
 	return {"items": result}
+
+
+def get_total_stock_from_warehouses(item_code, warehouses):
+	"""
+	Calculate total stock quantity for an item across multiple warehouses
+	"""
+	total_qty = 0
+	
+	for warehouse in warehouses:
+		try:
+			qty, _ = get_stock_availability(item_code, warehouse)
+			total_qty += qty
+		except Exception as e:
+			# Log error but continue with other warehouses
+			frappe.log_error(f"Error getting stock for {item_code} in {warehouse}: {str(e)}")
+			continue
+	
+	return total_qty
+
+
+# Enhanced search_by_term function to handle warehouse groups
+def search_by_term(search_term, custom_show_alternative_item_for_pos_search, warehouse, price_list):
+	result = search_for_serial_or_batch_or_barcode_number(search_term) or {}
+
+	item_code = result.get("item_code", "")
+	serial_no = result.get("serial_no", "")
+	batch_no = result.get("batch_no", "")
+	barcode = result.get("barcode", "")
+
+	if not result:
+		return
+		
+	item_doc = frappe.get_doc("Item", item_code)
+
+	if not item_doc:
+		return
+		
+	item = {
+		"barcode": barcode,
+		"batch_no": batch_no,
+		"description": item_doc.description,
+		"is_stock_item": item_doc.is_stock_item,
+		"item_code": item_doc.name,
+		"item_image": item_doc.image,
+		"item_name": item_doc.item_name,
+		"serial_no": serial_no,
+		"stock_uom": item_doc.stock_uom,
+		"uom": item_doc.stock_uom,
+		"item_uoms": frappe.db.get_all("UOM Conversion Detail", {"parent": item_doc.item_code}, ["uom"], pluck="uom")
+	}
+
+	if barcode:
+		barcode_info = next(filter(lambda x: x.barcode == barcode, item_doc.get("barcodes", [])), None)
+		if barcode_info and barcode_info.uom:
+			uom = next(filter(lambda x: x.uom == barcode_info.uom, item_doc.uoms), {})
+			item.update(
+				{
+					"uom": barcode_info.uom,
+					"conversion_factor": uom.get("conversion_factor", 1),
+				}
+			)
+
+	# ENHANCED: Handle warehouse groups for search results
+	is_group = frappe.db.get_value("Warehouse", warehouse, "is_group")
+	if is_group:
+		lft, rgt = frappe.db.get_value("Warehouse", warehouse, ["lft", "rgt"])
+		child_warehouses = frappe.db.get_all(
+			"Warehouse",
+			fields=["name"],
+			filters={"lft": [">=", lft], "rgt": ["<=", rgt]},
+			pluck="name"
+		)
+		item_stock_qty = get_total_stock_from_warehouses(item_code, child_warehouses)
+	else:
+		item_stock_qty, is_stock_item = get_stock_availability(item_code, warehouse)
+	
+	item_stock_qty = item_stock_qty // item.get("conversion_factor", 1)
+	item.update({"actual_qty": item_stock_qty})
+
+	price = frappe.get_list(
+		doctype="Item Price",
+		filters={
+			"price_list": price_list,
+			"item_code": item_code,
+			"batch_no": batch_no,
+		},
+		fields=["uom", "currency", "price_list_rate", "batch_no"],
+	)
+
+	def __sort(p):
+		p_uom = p.get("uom")
+
+		if p_uom == item.get("uom"):
+			return 0
+		elif p_uom == item.get("stock_uom"):
+			return 1
+		else:
+			return 2
+
+	# sort by fallback preference. always pick exact uom match if available
+	price = sorted(price, key=__sort)
+
+	if len(price) > 0:
+		p = price.pop(0)
+		item.update(
+			{
+				"currency": p.get("currency"),
+				"price_list_rate": p.get("price_list_rate"),
+			}
+		)
+
+	return {"items": [item]}
 
 @frappe.whitelist()
 def search_for_serial_or_batch_or_barcode_number(search_value: str) -> Dict[str, Optional[str]]:
