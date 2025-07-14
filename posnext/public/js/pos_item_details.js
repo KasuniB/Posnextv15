@@ -8,6 +8,7 @@ posnext.PointOfSale.ItemDetails = class {
 		this.allow_discount_change = settings.allow_discount_change;
 		this.custom_edit_rate_and_uom = settings.custom_edit_rate_and_uom;
 		this.current_item = {};
+		this.discount_is_amount = false; // New property to track discount type
 
 		this.init_component();
 	}
@@ -80,7 +81,6 @@ posnext.PointOfSale.ItemDetails = class {
 			this.toggle_component(!hide_item_details);
 		}
 
-
 		if (item && current_item_changed) {
 			this.doctype = item.doctype;
 			this.item_meta = frappe.get_meta(this.doctype);
@@ -144,7 +144,6 @@ posnext.PointOfSale.ItemDetails = class {
 		} else {
 			this.$item_image.html(`<div class="item-abbr">${frappe.get_abbr(item_name)}</div>`);
 		}
-
 	}
 
 	handle_broken_image($img) {
@@ -153,10 +152,18 @@ posnext.PointOfSale.ItemDetails = class {
 	}
 
 	render_discount_dom(item) {
-		if (item.discount_percentage) {
+		// Enhanced discount display to show both percentage and amount
+		if (item.discount_percentage || item.discount_amount) {
+			let discount_text = '';
+			if (item.discount_amount && item.discount_amount > 0) {
+				discount_text = `${format_currency(item.discount_amount, this.currency)} off`;
+			} else if (item.discount_percentage) {
+				discount_text = `${item.discount_percentage}% off`;
+			}
+
 			this.$dicount_section.html(
 				`<div class="item-rate">${format_currency(item.price_list_rate, this.currency)}</div>
-				<div class="item-discount">${item.discount_percentage}% off</div>`
+				<div class="item-discount">${discount_text}</div>`
 			)
 			this.$item_price.html(format_currency(item.rate, this.currency));
 		} else {
@@ -174,17 +181,28 @@ posnext.PointOfSale.ItemDetails = class {
 			)
 
 			const field_meta = this.item_meta.fields.find(df => df.fieldname === fieldname);
-			fieldname === 'discount_percentage' ? (field_meta.label = __('Discount (%)')) : '';
+			
+			// Enhanced label handling for discount fields
+			if (fieldname === 'discount_percentage') {
+				field_meta.label = this.discount_is_amount ? __('Discount Amount') : __('Discount (%)');
+			}
+
 			const me = this;
 			var uoms = []
 			frappe.db.get_doc("Item",me.current_item.item_code).then(doc => {
 				uoms = doc.uoms.map(item => item.uom);
 			})
+
 			this[`${fieldname}_control`] = frappe.ui.form.make_control({
 				df: {
 					...field_meta,
 					onchange: function() {
-						me.events.form_updated(me.current_item, fieldname, this.value);
+						// Handle discount field changes based on type
+						if (fieldname === 'discount_percentage') {
+							me.handle_discount_change(this.value);
+						} else {
+							me.events.form_updated(me.current_item, fieldname, this.value);
+						}
 					},
 					get_query:function () {
 						if(fieldname === 'uom'){
@@ -203,9 +221,81 @@ posnext.PointOfSale.ItemDetails = class {
 			this[`${fieldname}_control`].set_value(item[fieldname]);
 		});
 
-		this.make_auto_serial_selection_btn(item);
+		// Add discount type toggle checkbox after discount field
+		this.add_discount_type_checkbox();
 
+		this.make_auto_serial_selection_btn(item);
 		this.bind_custom_control_change_event();
+	}
+
+	// New method to add discount type checkbox
+	add_discount_type_checkbox() {
+		if (this.discount_percentage_control && this.allow_discount_change) {
+			const checkbox_html = `
+				<div class="discount-type-toggle" style="margin-top: 8px;">
+					<label class="checkbox-label" style="font-size: 12px; display: flex; align-items: center; cursor: pointer;">
+						<input type="checkbox" class="discount-amount-checkbox" style="margin-right: 6px;" ${this.discount_is_amount ? 'checked' : ''}>
+						<span>${__('Use discount amount instead of percentage')}</span>
+					</label>
+				</div>
+			`;
+			this.$form_container.find('.discount_percentage-control').after(checkbox_html);
+			this.bind_discount_type_toggle();
+		}
+	}
+
+	// New method to handle discount type toggle
+	bind_discount_type_toggle() {
+		const me = this;
+		this.$form_container.on('change', '.discount-amount-checkbox', function() {
+			me.discount_is_amount = $(this).is(':checked');
+			me.toggle_discount_type();
+		});
+	}
+
+	// New method to toggle discount type
+	toggle_discount_type() {
+		const current_value = this.discount_percentage_control.get_value();
+		
+		// Update the label
+		const new_label = this.discount_is_amount ? __('Discount Amount') : __('Discount (%)');
+		this.discount_percentage_control.df.label = new_label;
+		this.discount_percentage_control.refresh();
+		
+		// Clear the field when switching types
+		this.discount_percentage_control.set_value('');
+		
+		// Update the current item to reflect the change
+		if (this.discount_is_amount) {
+			this.current_item.discount_amount = 0;
+			this.current_item.discount_percentage = 0;
+		} else {
+			this.current_item.discount_percentage = 0;
+			this.current_item.discount_amount = 0;
+		}
+	}
+
+	// New method to handle discount changes
+	handle_discount_change(value) {
+		if (this.discount_is_amount) {
+			// Handle discount amount
+			this.events.form_updated(this.current_item, 'discount_amount', value).then(() => {
+				// Calculate percentage based on amount
+				const item_row = frappe.get_doc(this.doctype, this.name);
+				const percentage = (value / item_row.price_list_rate) * 100;
+				frappe.model.set_value(this.doctype, this.name, 'discount_percentage', percentage);
+				this.render_discount_dom(item_row);
+			});
+		} else {
+			// Handle discount percentage (original behavior)
+			this.events.form_updated(this.current_item, 'discount_percentage', value).then(() => {
+				// Calculate amount based on percentage
+				const item_row = frappe.get_doc(this.doctype, this.name);
+				const amount = (value / 100) * item_row.price_list_rate;
+				frappe.model.set_value(this.doctype, this.name, 'discount_amount', amount);
+				this.render_discount_dom(item_row);
+			});
+		}
 	}
 
 	get_form_fields(item) {
