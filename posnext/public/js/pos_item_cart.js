@@ -1596,95 +1596,124 @@ function get_customer_description() {
 		}
 
 		function get_rate_discount_html() {
-			if(me.custom_edit_rate){
-				if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
-					var html = `
-                        <div class="item-qty-rate" style="flex: 6">
-                        <div class="item-qty" style="flex: 1"></div>`;
+	if(me.custom_edit_rate){
+		// Editable version - this part stays the same
+		if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
+			var html = `
+				<div class="item-qty-rate" style="flex: 6">
+				<div class="item-qty" style="flex: 1"></div>`;
 
-					if(me.custom_show_uom_in_cart){
-						html += `<div class="item-uom" style="flex: 1;text-align: left"></div>`;
-					}
-					if(me.show_batch_in_cart){
-						html += `<div class="item-batch" style="flex: 1;text-align: left"></div>`;
-					}
-					html += `<div class="item-rate" style="flex: 1;"></div>`;
-					if(me.custom_use_discount_percentage){
-						html += `<div class="item-rate-discount" style="flex: 1;text-align: left"></div>`
-					}
-					if(me.custom_use_discount_amount){
-						html += `<div class="item-rate-discount-amount" style="flex: 1;text-align: left"></div>`
-					}
-					if(me.custom_show_incoming_rate){
-						html += `<div class="item-incoming-rate" style="flex: 1"></div>`
-					}
-					if(me.custom_show_logical_rack_in_cart){
-						html += `<div class="item-logical-rack" style="flex: 1"></div>`
-					}
-					if(me.custom_show_last_customer_rate){
-						html += `<div class="item-last-customer-rate" style="flex: 1"></div>`
-					}
-                    html += `<div class="item-rate-amount" style="flex: 1"></div>
-							<div class="remove-button" style="margin-top:15px;display: flex;justify-content: center;align-items: center;"></div>
-                        </div>`
-                    return html
-                } else {
-					var html = `
-                        <div class="item-qty-rate" style="flex: 6">
-                        <div class="item-qty" style="flex: 1"></div>`;
-					if(me.custom_show_uom_in_cart){
-						html += `<div class="item-uom" style="flex: 1;text-align: left"></div>`;
-					}
-					if(me.show_batch_in_cart){
-						html += `<div class="item-batch" style="flex: 1;text-align: left"></div>`;
-					}
-					html += `<div class="item-rate" style="flex: 1;"></div>`;
-					if(me.custom_use_discount_percentage){
-						html += `<div class="item-rate-discount" style="flex: 1;text-align: left"></div>`
-					}
-					if(me.custom_use_discount_amount){
-						html += `<div class="item-rate-discount-amount" style="flex: 1;text-align: left"></div>`
-					}
-					if(me.custom_show_incoming_rate){
-						html += `<div class="item-incoming-rate" style="flex: 1"></div>`
-					}
-					if(me.custom_show_logical_rack_in_cart){
-						html += `<div class="item-logical-rack" style="flex: 1"></div>`
-					}
-					if(me.custom_show_last_customer_rate){
-						html += `<div class="item-last-customer-rate" style="flex: 1"></div>`
-					}
-                    html += `<div class="item-rate-amount" style="flex: 1"></div>
-                            <div class="remove-button" style="margin-top:15px;display: flex;justify-content: center;align-items: center;"></div>
-                        </div>`
-                    return html
-                }
-			} else {
-				if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
-                    return `
-                        <div class="item-qty-rate" style="flex: 4" > 
-                            <div class="item-qty" style="flex: 1"><span>${item_data.qty || 0}</span></div>
-                            <div class="item-qty" style="flex: 1"><span> ${item_data.uom}</span></div>
-							<div class="item-qty" style="flex: 1"><span> ${item_data.batch_no || ''}</span></div>
-                            <div class="item-rate-amount" style="flex: 1">
-                                <div class="item-rate">${parseFloat(item_data.amount).toFixed(2)}</div>
-                                <div class="item-amount">${parseFloat(item_data.rate).toFixed(2)}</div>
-                            </div>
-                        </div>`
-                } else {
-                    return `
-                        <div class="item-qty-rate" style="flex: 4" >
-                            <div class="item-qty" style="flex: 1" ><span>${item_data.qty || 0}</span></div>
-                            <div class="item-qty" style="flex: 1"><span> ${item_data.uom}</span></div>
-							<div class="item-qty" style="flex: 1"><span> ${item_data.batch_no || ''}</span></div>
-                            <div class="item-rate-amount" style="flex: 1">
-                                <div class="item-rate">${parseFloat(item_data.rate).toFixed(2)}</div>
-                            </div>
-                        </div>`
-                }
+			if(me.custom_show_uom_in_cart){
+				html += `<div class="item-uom" style="flex: 1;text-align: left"></div>`;
 			}
-
+			if(me.show_batch_in_cart){
+				html += `<div class="item-batch" style="flex: 1;text-align: left"></div>`;
+			}
+			html += `<div class="item-rate" style="flex: 1;"></div>`;
+			if(me.custom_use_discount_percentage){
+				html += `<div class="item-rate-discount" style="flex: 1;text-align: left"></div>`
+			}
+			if(me.custom_use_discount_amount){
+				html += `<div class="item-rate-discount-amount" style="flex: 1;text-align: left"></div>`
+			}
+			if(me.custom_show_incoming_rate){
+				html += `<div class="item-incoming-rate" style="flex: 1"></div>`
+			}
+			if(me.custom_show_logical_rack_in_cart){
+				html += `<div class="item-logical-rack" style="flex: 1"></div>`
+			}
+			if(me.custom_show_last_customer_rate){
+				html += `<div class="item-last-customer-rate" style="flex: 1"></div>`
+			}
+			html += `<div class="item-rate-amount" style="flex: 1"></div>
+					<div class="remove-button" style="margin-top:15px;display: flex;justify-content: center;align-items: center;"></div>
+				</div>`
+			return html
+		} else {
+			var html = `
+				<div class="item-qty-rate" style="flex: 6">
+				<div class="item-qty" style="flex: 1"></div>`;
+			if(me.custom_show_uom_in_cart){
+				html += `<div class="item-uom" style="flex: 1;text-align: left"></div>`;
+			}
+			if(me.show_batch_in_cart){
+				html += `<div class="item-batch" style="flex: 1;text-align: left"></div>`;
+			}
+			html += `<div class="item-rate" style="flex: 1;"></div>`;
+			if(me.custom_use_discount_percentage){
+				html += `<div class="item-rate-discount" style="flex: 1;text-align: left"></div>`
+			}
+			if(me.custom_use_discount_amount){
+				html += `<div class="item-rate-discount-amount" style="flex: 1;text-align: left"></div>`
+			}
+			if(me.custom_show_incoming_rate){
+				html += `<div class="item-incoming-rate" style="flex: 1"></div>`
+			}
+			if(me.custom_show_logical_rack_in_cart){
+				html += `<div class="item-logical-rack" style="flex: 1"></div>`
+			}
+			if(me.custom_show_last_customer_rate){
+				html += `<div class="item-last-customer-rate" style="flex: 1"></div>`
+			}
+			html += `<div class="item-rate-amount" style="flex: 1"></div>
+					<div class="remove-button" style="margin-top:15px;display: flex;justify-content: center;align-items: center;"></div>
+				</div>`
+			return html
 		}
+	} else {
+		// Non-editable version - FIXED to match header structure
+		var html = `<div class="item-qty-rate" style="flex: 6">
+			<div class="item-qty" style="flex: 1"><span>${item_data.qty || 0}</span></div>`;
+
+		// Add UOM column if enabled
+		if(me.custom_show_uom_in_cart){
+			html += `<div class="item-uom" style="flex: 1"><span>${item_data.uom || ''}</span></div>`;
+		}
+
+		// Add Batch column if enabled  
+		if(me.show_batch_in_cart){
+			html += `<div class="item-batch" style="flex: 1"><span>${item_data.batch_no || ''}</span></div>`;
+		}
+
+		// Add Rate column if editable rates are enabled
+		if(me.custom_edit_rate){
+			html += `<div class="item-rate" style="flex: 1"><span>${parseFloat(item_data.rate).toFixed(2)}</span></div>`;
+		}
+
+		// Add Discount % column if enabled
+		if(me.custom_use_discount_percentage){
+			html += `<div class="item-discount" style="flex: 1"><span>${item_data.discount_percentage || 0}%</span></div>`;
+		}
+
+		// Add Discount Amount column if enabled
+		if(me.custom_use_discount_amount){
+			html += `<div class="item-discount-amount" style="flex: 1"><span>${item_data.discount_amount || 0}</span></div>`;
+		}
+
+		// Add Incoming Rate column if enabled
+		if(me.custom_show_incoming_rate){
+			html += `<div class="item-incoming-rate" style="flex: 1"><span>${item_data.custom_valuation_rate || ''}</span></div>`;
+		}
+
+		// Add Logical Rack column if enabled
+		if(me.custom_show_logical_rack_in_cart){
+			html += `<div class="item-logical-rack" style="flex: 1"><span>${item_data.custom_logical_rack || ''}</span></div>`;
+		}
+
+		// Add Last Customer Rate column if enabled
+		if(me.custom_show_last_customer_rate){
+			html += `<div class="item-last-customer-rate" style="flex: 1"><span>-</span></div>`;
+		}
+
+		// Amount column (always shown)
+		html += `<div class="item-rate-amount" style="flex: 1">
+			<span>${parseFloat(item_data.amount).toFixed(2)}</span>
+		</div>
+		</div>`;
+
+		return html;
+	}
+}
 
 		function get_description_html(item_data) {
 			const hide_description = me.custom_show_item_discription;
