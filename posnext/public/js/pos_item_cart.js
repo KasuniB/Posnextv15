@@ -1665,7 +1665,7 @@ function get_customer_description() {
                         <div class="item-qty-rate" style="flex: 4" > 
                             <div class="item-qty" style="flex: 1"><span>${item_data.qty || 0}</span></div>
                             <div class="item-qty" style="flex: 1"><span> ${item_data.uom}</span></div>
-							<div class="item-qty" style="flex: 1"><span> ${item_data.batch}</span></div>
+							<div class="item-qty" style="flex: 1"><span> ${item_data.batch_no || ''}</span></div>
                             <div class="item-rate-amount" style="flex: 1">
                                 <div class="item-rate">${parseFloat(item_data.amount).toFixed(2)}</div>
                                 <div class="item-amount">${parseFloat(item_data.rate).toFixed(2)}</div>
@@ -1676,7 +1676,7 @@ function get_customer_description() {
                         <div class="item-qty-rate" style="flex: 4" >
                             <div class="item-qty" style="flex: 1" ><span>${item_data.qty || 0}</span></div>
                             <div class="item-qty" style="flex: 1"><span> ${item_data.uom}</span></div>
-							<div class="item-qty" style="flex: 1"><span> ${item_data.batch}</span></div>
+							<div class="item-qty" style="flex: 1"><span> ${item_data.batch_no || ''}</span></div>
                             <div class="item-rate-amount" style="flex: 1">
                                 <div class="item-rate">${parseFloat(item_data.rate).toFixed(2)}</div>
                             </div>
