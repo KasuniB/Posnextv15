@@ -1595,7 +1595,7 @@ function get_customer_description() {
 			me.$cart_items_wrapper.find(".item-rate-amount").css("width", max_width);
 		}
 
-		function get_rate_discount_html() {
+function get_rate_discount_html() {
 	if(me.custom_edit_rate){
 		// Editable version - this part stays the same
 		if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
@@ -1661,52 +1661,65 @@ function get_customer_description() {
 			return html
 		}
 	} else {
-		// Non-editable version - FIXED to match header structure
-		var html = `<div class="item-qty-rate" style="flex: 6">
-			<div class="item-qty" style="flex: 1"><span>${item_data.qty || 0}</span></div>`;
+		// Non-editable version - Match header structure exactly
+		// The item-name-desc takes flex:3, so we need to calculate remaining columns
+		var totalColumns = 1; // Start with qty column
+		
+		if(me.custom_show_uom_in_cart) totalColumns++;
+		if(me.show_batch_in_cart) totalColumns++;
+		if(me.custom_edit_rate) totalColumns++;
+		if(me.custom_use_discount_percentage) totalColumns++;
+		if(me.custom_use_discount_amount) totalColumns++;
+		if(me.custom_show_incoming_rate) totalColumns++;
+		if(me.custom_show_logical_rack_in_cart) totalColumns++;
+		if(me.custom_show_last_customer_rate) totalColumns++;
+		totalColumns++; // Amount column
+		
+		var html = `<div class="item-qty-rate" style="flex: ${totalColumns}; display: flex;">
+			<div class="item-qty" style="flex: 1; text-align: center;"><span>${item_data.qty || 0}</span></div>`;
 
 		// Add UOM column if enabled
 		if(me.custom_show_uom_in_cart){
-			html += `<div class="item-uom" style="flex: 1"><span>${item_data.uom || ''}</span></div>`;
+			html += `<div class="item-uom" style="flex: 1; text-align: center;"><span>${item_data.uom || ''}</span></div>`;
 		}
 
 		// Add Batch column if enabled  
 		if(me.show_batch_in_cart){
-			html += `<div class="item-batch" style="flex: 1"><span>${item_data.batch_no || ''}</span></div>`;
+			html += `<div class="item-batch" style="flex: 1; text-align: center;"><span>${item_data.batch_no || ''}</span></div>`;
 		}
 
 		// Add Rate column if editable rates are enabled
 		if(me.custom_edit_rate){
-			html += `<div class="item-rate" style="flex: 1"><span>${parseFloat(item_data.rate).toFixed(2)}</span></div>`;
+			html += `<div class="item-rate" style="flex: 1; text-align: center;"><span>${parseFloat(item_data.rate).toFixed(2)}</span></div>`;
 		}
 
 		// Add Discount % column if enabled
 		if(me.custom_use_discount_percentage){
-			html += `<div class="item-discount" style="flex: 1"><span>${item_data.discount_percentage || 0}%</span></div>`;
+			html += `<div class="item-discount" style="flex: 1; text-align: center;"><span>${item_data.discount_percentage || 0}%</span></div>`;
 		}
 
 		// Add Discount Amount column if enabled
 		if(me.custom_use_discount_amount){
-			html += `<div class="item-discount-amount" style="flex: 1"><span>${item_data.discount_amount || 0}</span></div>`;
+			html += `<div class="item-discount-amount" style="flex: 1; text-align: center;"><span>${item_data.discount_amount || 0}</span></div>`;
 		}
 
 		// Add Incoming Rate column if enabled
 		if(me.custom_show_incoming_rate){
-			html += `<div class="item-incoming-rate" style="flex: 1"><span>${item_data.custom_valuation_rate || ''}</span></div>`;
+			html += `<div class="item-incoming-rate" style="flex: 1; text-align: center;"><span>${item_data.custom_valuation_rate || ''}</span></div>`;
 		}
 
 		// Add Logical Rack column if enabled
 		if(me.custom_show_logical_rack_in_cart){
-			html += `<div class="item-logical-rack" style="flex: 1"><span>${item_data.custom_logical_rack || ''}</span></div>`;
+			html += `<div class="item-logical-rack" style="flex: 1; text-align: center;"><span>${item_data.custom_logical_rack || ''}</span></div>`;
 		}
 
 		// Add Last Customer Rate column if enabled
 		if(me.custom_show_last_customer_rate){
-			html += `<div class="item-last-customer-rate" style="flex: 1"><span>-</span></div>`;
+			html += `<div class="item-last-customer-rate" style="flex: 1; text-align: center;"><span>-</span></div>`;
 		}
 
 		// Amount column (always shown)
-		html += `<div class="item-rate-amount" style="flex: 1">
+		html += `<div class="item-rate-amount" style="flex: 1; text-align: left;">
 			<span>${parseFloat(item_data.amount).toFixed(2)}</span>
 		</div>
 		</div>`;
@@ -1714,7 +1727,6 @@ function get_customer_description() {
 		return html;
 	}
 }
-
 		function get_description_html(item_data) {
 			const hide_description = me.custom_show_item_discription;
 			if (hide_description) {
