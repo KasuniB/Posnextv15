@@ -8,7 +8,7 @@ posnext.PointOfSale.ItemDetails = class {
 		this.allow_discount_change = settings.allow_discount_change;
 		this.custom_edit_rate_and_uom = settings.custom_edit_rate_and_uom;
 		this.current_item = {};
-		this.discount_is_amount = false; // New property to track discount type
+		this.discount_is_amount = true; // New property to track discount type - default to amount
 
 		this.init_component();
 	}
