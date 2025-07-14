@@ -142,6 +142,9 @@ posnext.PointOfSale.Payment = class {
 							}
 							frm.set_value(this.df.fieldname, this.get_value());
 						}
+						
+						// Update totals whenever any field changes
+						me.update_totals_section(frm.doc);
 					}
 				};
 				
@@ -274,6 +277,28 @@ posnext.PointOfSale.Payment = class {
 					});
 				}
 			}
+		});
+
+		// ADD: Listen for discount changes and update totals immediately
+		frappe.ui.form.on('Sales Invoice', 'additional_discount_percentage', (frm) => {
+			me.update_totals_section(frm.doc);
+		});
+
+		frappe.ui.form.on('Sales Invoice', 'discount_amount', (frm) => {
+			me.update_totals_section(frm.doc);
+		});
+
+		frappe.ui.form.on('Sales Invoice', 'grand_total', (frm) => {
+			me.update_totals_section(frm.doc);
+		});
+
+		frappe.ui.form.on('Sales Invoice', 'net_total', (frm) => {
+			me.update_totals_section(frm.doc);
+		});
+
+		// ADD: Listen for any changes to the invoice that affect totals
+		frappe.ui.form.on('Sales Invoice', 'change_amount', (frm) => {
+			me.update_totals_section(frm.doc);
 		});
 
 		this.setup_listener_for_payments();
