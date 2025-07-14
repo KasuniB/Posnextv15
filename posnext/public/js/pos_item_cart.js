@@ -1718,11 +1718,19 @@ function get_rate_discount_html() {
 			html += `<div class="item-last-customer-rate" style="flex: 1; text-align: center;"><span>-</span></div>`;
 		}
 
-		// Amount column (always shown)
-		html += `<div class="item-rate-amount" style="flex: 1; text-align: left;">
-			<span>${parseFloat(item_data.amount).toFixed(2)}</span>
-		</div>
-		</div>`;
+		// Amount column (always shown) - Show both rate and amount when different
+		if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
+			html += `<div class="item-rate-amount" style="flex: 1; text-align: left;">
+				<div class="item-amount">${parseFloat(item_data.amount).toFixed(2)}</div>
+				<div class="item-rate">${parseFloat(item_data.rate).toFixed(2)}</div>
+			</div>
+			</div>`;
+		} else {
+			html += `<div class="item-rate-amount" style="flex: 1; text-align: left;">
+				<div class="item-rate">${parseFloat(item_data.rate).toFixed(2)}</div>
+			</div>
+			</div>`;
+		}
 
 		return html;
 	}
