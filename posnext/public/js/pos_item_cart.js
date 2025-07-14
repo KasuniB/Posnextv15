@@ -1721,13 +1721,13 @@ function get_rate_discount_html() {
 		// Amount column (always shown) - Show both rate and amount when different
 		if (item_data.rate && item_data.amount && item_data.rate !== item_data.amount) {
 			html += `<div class="item-rate-amount" style="flex: 1; text-align: left;">
-				<div class="item-amount">${parseFloat(item_data.amount).toFixed(2)}</div>
-				<div class="item-rate">${parseFloat(item_data.rate).toFixed(2)}</div>
+				<div class="item-amount" style="font-weight: bold;">${parseFloat(item_data.amount).toFixed(2)}</div>
+				<div class="item-rate" style="font-size: 0.85em; color: #666;">${parseFloat(item_data.rate).toFixed(2)}</div>
 			</div>
 			</div>`;
 		} else {
 			html += `<div class="item-rate-amount" style="flex: 1; text-align: left;">
-				<div class="item-rate">${parseFloat(item_data.rate).toFixed(2)}</div>
+				<div class="item-rate" style="font-weight: bold;">${parseFloat(item_data.rate).toFixed(2)}</div>
 			</div>
 			</div>`;
 		}
