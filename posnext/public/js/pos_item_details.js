@@ -337,6 +337,8 @@ posnext.PointOfSale.ItemDetails = class {
 			this.discount_percentage_control.refresh();
 		}
 
+		// Replace the existing warehouse control get_query section with this updated version
+
 if (this.warehouse_control) {
 	this.warehouse_control.df.reqd = 1;
 	this.warehouse_control.df.onchange = function() {
@@ -365,58 +367,38 @@ if (this.warehouse_control) {
 	
 	// Updated get_query to filter by group warehouse
 	this.warehouse_control.df.get_query = () => {
-		const frm = me.events.get_frm();
-		const pos_profile = frm.doc.pos_profile;
-		const company = frm.doc.company;
+		const pos_profile = me.events.get_frm().doc.pos_profile;
+		const company = me.events.get_frm().doc.company;
 		
 		// Get the group warehouse from POS profile
-		if (pos_profile) {
-			return frappe.db.get_value('POS Profile', pos_profile, 'warehouse')
-				.then(r => {
-					const group_warehouse = r.message.warehouse;
-					
-					if (group_warehouse) {
-						// Get child warehouses of the group warehouse
-						return frappe.db.get_list('Warehouse', {
-							filters: {
-								parent_warehouse: group_warehouse,
-								company: company,
-								is_group: 0,
-								disabled: 0
-							},
-							fields: ['name']
-						}).then(warehouses => {
-							const warehouse_names = warehouses.map(w => w.name);
-							return {
-								filters: {
-									name: ['in', warehouse_names],
-									company: company,
-									is_group: 0,
-									disabled: 0
-								}
-							};
-						});
-					} else {
-						// Fallback to company filter if no group warehouse is set
-						return {
-							filters: { 
-								company: company,
-								is_group: 0,
-								disabled: 0
-							}
-						};
-					}
-				});
-		} else {
-			// If no POS profile, use company filter
-			return {
-				filters: { 
-					company: company,
-					is_group: 0,
-					disabled: 0
+		return frappe.db.get_value('POS Profile', pos_profile, 'warehouse')
+			.then(r => {
+				const group_warehouse = r.message.warehouse;
+				
+				if (group_warehouse) {
+					return {
+						filters: {
+							company: company,
+							is_group: 0, // Only show leaf warehouses (not group warehouses)
+							lft: ['>', 0], // Ensure it's part of the warehouse tree
+							rgt: ['>', 0]
+						},
+						query: 'erpnext.controllers.queries.warehouse_query',
+						filters: {
+							'parent_warehouse': group_warehouse,
+							'company': company
+						}
+					};
+				} else {
+					// Fallback to company filter if no group warehouse is set
+					return {
+						filters: { 
+							company: company,
+							is_group: 0 
+						}
+					};
 				}
-			};
-		}
+			});
 	};
 	
 	this.warehouse_control.refresh();
