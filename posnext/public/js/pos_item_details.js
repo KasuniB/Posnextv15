@@ -337,38 +337,90 @@ posnext.PointOfSale.ItemDetails = class {
 			this.discount_percentage_control.refresh();
 		}
 
-		if (this.warehouse_control) {
-			this.warehouse_control.df.reqd = 1;
-			this.warehouse_control.df.onchange = function() {
-				if (this.value) {
-					me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
-						me.item_stock_map = me.events.get_item_stock_map();
-						const available_qty = me.item_stock_map[me.item_row.item_code][this.value][0];
-						const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value][1]);
-						if (available_qty === undefined) {
-							me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
-								// item stock map is updated now reset warehouse
-								me.warehouse_control.set_value(this.value);
-							})
-						} else if (available_qty === 0 && is_stock_item) {
-							me.warehouse_control.set_value('');
-							const bold_item_code = me.item_row.item_code.bold();
-							const bold_warehouse = this.value.bold();
-							frappe.throw(
-								__('Item Code: {0} is not available under warehouse {1}.', [bold_item_code, bold_warehouse])
-							);
-						}
-						me.actual_qty_control.set_value(available_qty);
-					});
+if (this.warehouse_control) {
+	this.warehouse_control.df.reqd = 1;
+	this.warehouse_control.df.onchange = function() {
+		if (this.value) {
+			me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
+				me.item_stock_map = me.events.get_item_stock_map();
+				const available_qty = me.item_stock_map[me.item_row.item_code][this.value][0];
+				const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value][1]);
+				if (available_qty === undefined) {
+					me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+						// item stock map is updated now reset warehouse
+						me.warehouse_control.set_value(this.value);
+					})
+				} else if (available_qty === 0 && is_stock_item) {
+					me.warehouse_control.set_value('');
+					const bold_item_code = me.item_row.item_code.bold();
+					const bold_warehouse = this.value.bold();
+					frappe.throw(
+						__('Item Code: {0} is not available under warehouse {1}.', [bold_item_code, bold_warehouse])
+					);
 				}
-			}
-			this.warehouse_control.df.get_query = () => {
-				return {
-					filters: { company: this.events.get_frm().doc.company }
+				me.actual_qty_control.set_value(available_qty);
+			});
+		}
+	}
+	
+	// Updated get_query to filter by group warehouse
+	this.warehouse_control.df.get_query = () => {
+		const frm = me.events.get_frm();
+		const pos_profile = frm.doc.pos_profile;
+		const company = frm.doc.company;
+		
+		// Get the group warehouse from POS profile
+		if (pos_profile) {
+			return frappe.db.get_value('POS Profile', pos_profile, 'warehouse')
+				.then(r => {
+					const group_warehouse = r.message.warehouse;
+					
+					if (group_warehouse) {
+						// Get child warehouses of the group warehouse
+						return frappe.db.get_list('Warehouse', {
+							filters: {
+								parent_warehouse: group_warehouse,
+								company: company,
+								is_group: 0,
+								disabled: 0
+							},
+							fields: ['name']
+						}).then(warehouses => {
+							const warehouse_names = warehouses.map(w => w.name);
+							return {
+								filters: {
+									name: ['in', warehouse_names],
+									company: company,
+									is_group: 0,
+									disabled: 0
+								}
+							};
+						});
+					} else {
+						// Fallback to company filter if no group warehouse is set
+						return {
+							filters: { 
+								company: company,
+								is_group: 0,
+								disabled: 0
+							}
+						};
+					}
+				});
+		} else {
+			// If no POS profile, use company filter
+			return {
+				filters: { 
+					company: company,
+					is_group: 0,
+					disabled: 0
 				}
 			};
-			this.warehouse_control.refresh();
 		}
+	};
+	
+	this.warehouse_control.refresh();
+}
 
 		if (this.serial_no_control) {
 			this.serial_no_control.df.reqd = 1;
