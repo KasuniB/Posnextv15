@@ -592,7 +592,7 @@ def create_customer_with_name(mobile_number, customer_name):
             frappe.throw(f"Customer with mobile number {mobile_number} already exists")
         
         customer_group = frappe.db.get_single_value("Selling Settings", "customer_group") or "Individual"
-        territory = frappe.db.get_single_value("Selling Settings", "territory") or "Rest Of The World"
+       
         
         # Create ONE customer with mobile number as ID
         customer_doc = frappe.get_doc({
@@ -600,7 +600,6 @@ def create_customer_with_name(mobile_number, customer_name):
             "name": mobile_number,  # Mobile number as customer ID
             "customer_name": customer_name,  # Actual name
             "customer_group": customer_group,
-            "territory": territory,
             "mobile_no": mobile_number
         })
         
