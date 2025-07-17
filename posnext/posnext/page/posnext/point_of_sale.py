@@ -763,17 +763,22 @@ def get_available_opening_entry():
 	return open_vouchers
 
 @frappe.whitelist()
-def get_warehouses_with_stock(txt, filters=None, **kwargs):
+def get_warehouses_with_stock(txt=None, filters=None, doctype=None, page_length=None, reference_doctype=None, **kwargs):
     """
     Get child warehouses with stock for a given item under a parent warehouse.
     
     Args:
-        txt (str): Search text (ignored in this implementation).
-        filters (dict): Filters containing company, parent_warehouse, and item_code.
-        **kwargs: Additional arguments passed by search_link (e.g., page_length, doctype).
+        txt (str, optional): Search text (ignored in this implementation).
+        filters (dict, optional): Filters containing company, parent_warehouse, and item_code.
+        doctype (str, optional): Doctype for the search (ignored).
+        page_length (int, optional): Number of results to return (ignored).
+        reference_doctype (str, optional): Reference doctype (ignored).
+        **kwargs: Additional arguments passed by search_link.
     Returns:
         list: List of warehouse names with stock for the item.
     """
+    frappe.log_error(f"get_warehouses_with_stock called with: txt={txt}, filters={filters}, doctype={doctype}, page_length={page_length}, reference_doctype={reference_doctype}, kwargs={kwargs}", "get_warehouses_with_stock")
+    
     if not filters or not all(key in filters for key in ['company', 'parent_warehouse', 'item_code']):
         frappe.log_error(f"Invalid filters for get_warehouses_with_stock: {filters}", "get_warehouses_with_stock")
         frappe.throw(_("Invalid filters. Company, parent_warehouse, and item_code are required."))
@@ -785,15 +790,13 @@ def get_warehouses_with_stock(txt, filters=None, **kwargs):
     if not parent_warehouse:
         frappe.throw(_("No parent warehouse specified. Please configure a group warehouse in the POS Profile."))
     
-    frappe.log_error(f"get_warehouses_with_stock called with: company={company}, parent_warehouse={parent_warehouse}, item_code={item_code}", "get_warehouses_with_stock")
-    
     # Check if parent_warehouse is a group warehouse
-    is_group = frappe.db.get_value("Warehouse", parent_warehouse, "is_group")
+    is_group = frappe.db.get_value("Warehouse", parent_warehouse, "is_group", cache=True)
     if not is_group:
         frappe.throw(_("Parent warehouse {0} is not a group warehouse.").format(parent_warehouse))
     
     # Get child warehouses using nested set model
-    lft, rgt = frappe.db.get_value("Warehouse", parent_warehouse, ["lft", "rgt"])
+    lft, rgt = frappe.db.get_value("Warehouse", parent_warehouse, ["lft", "rgt"], cache=True)
     child_warehouses = frappe.db.get_all(
         "Warehouse",
         fields=["name"],
