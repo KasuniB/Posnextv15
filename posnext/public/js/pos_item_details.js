@@ -13,11 +13,11 @@ posnext.PointOfSale.ItemDetails = class {
 	}
 
 init_component() {
+    const frm = this.events.get_frm();
     if (!this.settings || !this.settings.warehouse) {
         console.error('ItemDetails: Settings or warehouse missing:', this.settings);
-        const frm = this.events.get_frm();
-        if (frm && frm.doc.pos_profile) {
-            // Fallback: Fetch warehouse from POS Profile if settings is incomplete
+        if (frm?.doc?.pos_profile) {
+            // Fallback: Fetch warehouse from POS Profile
             frappe.db.get_value('POS Profile', frm.doc.pos_profile, 'warehouse').then(({ message }) => {
                 if (message.warehouse) {
                     this.settings = this.settings || {};
@@ -31,10 +31,16 @@ init_component() {
                     frappe.throw(__('No warehouse specified in POS Profile {0}. Please configure a group warehouse.', [frm.doc.pos_profile.bold()]));
                 }
             });
-            return;
         } else {
-            frappe.throw(__('POS Profile not set in Sales Invoice. Cannot initialize item details.'));
+            // Log warning and proceed without warehouse-dependent components
+            console.warn('ItemDetails: POS Profile not set in Sales Invoice. Initializing without warehouse.');
+            this.settings = this.settings || {};
+            this.prepare_dom();
+            this.init_child_components();
+            this.bind_events();
+            this.attach_shortcuts();
         }
+        return;
     }
     console.log('ItemDetails initialized with settings:', this.settings);
     this.prepare_dom();
@@ -313,13 +319,12 @@ bind_custom_control_change_event() {
             const frm = this.events.get_frm();
             let parent_warehouse = this.settings?.warehouse;
             if (!parent_warehouse && frm?.doc?.pos_profile) {
-                // Fallback to POS Profile warehouse
-                const pos_profile_data = frappe.get_cached_value('POS Profile', frm.doc.pos_profile, 'warehouse');
-                parent_warehouse = pos_profile_data || '';
+                parent_warehouse = frappe.get_cached_value('POS Profile', frm.doc.pos_profile, 'warehouse');
                 console.warn('ItemDetails: Fallback to POS Profile warehouse:', parent_warehouse);
             }
             if (!parent_warehouse) {
-                frappe.throw(__('No warehouse specified in POS Profile {0}. Please configure a group warehouse.', [frm?.doc?.pos_profile?.bold() || '']));
+                console.warn('ItemDetails: No parent warehouse available. Returning empty query.');
+                return { filters: {} }; // Return empty query to avoid error
             }
             return {
                 query: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',

@@ -222,11 +222,17 @@ async prepare_app_defaults(data) {
 	}
 
 	make_app() {
-		this.prepare_dom();
-		this.prepare_components();
-		this.prepare_menu();
-		this.make_new_invoice();
-	}
+    return frappe.run_serially([
+        () => this.set_pos_profile_data(), // Ensure pos_profile is set first
+        () => {
+            console.log('make_app: frm.doc after set_pos_profile_data:', this.frm.doc);
+            this.prepare_dom();
+            this.prepare_components();
+            this.prepare_menu();
+            this.make_new_invoice();
+        }
+    ]);
+}
 
 	prepare_dom() {
 		this.wrapper.append(
@@ -655,15 +661,24 @@ init_item_details() {
 	}
 
 	set_pos_profile_data() {
-		if (this.company && !this.frm.doc.company) this.frm.doc.company = this.company;
-		if ((this.pos_profile && !this.frm.doc.pos_profile) | (this.frm.doc.is_return && this.pos_profile != this.frm.doc.pos_profile)) {
-			this.frm.doc.pos_profile = this.pos_profile;
-		}
-
-		if (!this.frm.doc.company) return;
-
-		return this.frm.trigger("set_pos_data");
-	}
+    if (!this.pos_profile) {
+        console.error('set_pos_profile_data: POS Profile not set in Controller');
+        frappe.throw(__('POS Profile not set. Please configure a POS Profile.'));
+    }
+    if (this.company && !this.frm.doc.company) {
+        this.frm.doc.company = this.company;
+        console.log('set_pos_profile_data: Set company:', this.company);
+    }
+    if ((this.pos_profile && !this.frm.doc.pos_profile) || (this.frm.doc.is_return && this.pos_profile != this.frm.doc.pos_profile)) {
+        this.frm.doc.pos_profile = this.pos_profile;
+        console.log('set_pos_profile_data: Set pos_profile:', this.pos_profile);
+    }
+    if (!this.frm.doc.company) {
+        console.error('set_pos_profile_data: Company not set in Sales Invoice');
+        return;
+    }
+    return this.frm.trigger("set_pos_data");
+}
 
 	set_pos_profile_status() {
 		this.page.set_indicator(this.pos_profile, "blue");
