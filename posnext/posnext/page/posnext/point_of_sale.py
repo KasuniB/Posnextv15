@@ -667,11 +667,11 @@ def get_warehouses_with_stock(doctype, txt, searchfield, start, page_len, filter
         filters (dict): Filters containing company, parent_warehouse, and item_code.
         **kwargs: Additional keyword arguments (e.g., as_dict, reference_doctype).
     Returns:
-        list: List of warehouse names with stock for the item.
+        list: List of dictionaries with 'value' and 'description' for warehouse names.
     """
     frappe.log_error(
-        title="get_warehouses_with_stock called (v2025-07-17-v9)",
-        message=f"Arguments: doctype={doctype}, txt={txt}, searchfield={searchfield}, start={start}, page_len={page_len}, filters={filters}, kwargs={kwargs}"
+        title="get_warehouses_with_stock called (v2025-07-17-v10)",
+        message=f"Arguments: doctype, txt, searchfield, start, page_len, filters, kwargs"
     )
     
     if isinstance(filters, str):
@@ -695,11 +695,11 @@ def get_warehouses_with_stock(doctype, txt, searchfield, start, page_len, filter
     if not is_group:
         frappe.throw(_("Parent warehouse {0} is not a group warehouse.").format(parent_warehouse))
     
-    lft, rgt = frappe.db.get_value("Warehouse", parent_warehouse, ["lft", "rgt"])  # Removed cache=True
+    lft, rgt = frappe.db.get_value("Warehouse", parent_warehouse, ["lft", "rgt"])  # No cache=True
     child_warehouses = frappe.db.get_all(
         "Warehouse",
         fields=["name"],
-        filters={"lft": [">=", lft], "rgt": ["<=", rgt], "is_group": 0},
+        filters={"lft": [">=", lft], "rgt": ["<=", rgt], "is_group": 0, "name": ["like", f"%{txt}%"]},
         pluck="name"
     )
     frappe.log_error(
@@ -716,15 +716,18 @@ def get_warehouses_with_stock(doctype, txt, searchfield, start, page_len, filter
         AND w.is_group = 0
         AND b.item_code = %s
         AND b.actual_qty > 0
-    """, (company, parent_warehouse, item_code), as_dict=True)
+        AND w.name IN %s
+        ORDER BY w.name
+        LIMIT %s OFFSET %s
+    """, (company, parent_warehouse, item_code, tuple(child_warehouses or ['']), page_len, start), as_dict=True)
     
-    warehouse_list = [w.name for w in warehouses]
+    warehouse_list = [{"value": w.name, "description": w.name} for w in warehouses]
     frappe.log_error(
         title="Warehouses with stock",
         message=f"Warehouses: {warehouse_list}"
     )
     return warehouse_list
-	
+
 @frappe.whitelist()
 def get_warehouse_with_highest_stock(company, parent_warehouse, item_code):
     warehouses = frappe.db.sql("""
