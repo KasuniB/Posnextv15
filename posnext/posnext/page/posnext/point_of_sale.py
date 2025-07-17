@@ -559,6 +559,10 @@ def set_customer_info(fieldname, customer, value=""):
 @frappe.whitelist()
 def get_pos_profile_data(pos_profile):
     pos_profile_doc = frappe.get_doc('POS Profile', pos_profile)
+    if not pos_profile_doc.warehouse:
+        frappe.log_error(f"No warehouse defined in POS Profile: {pos_profile}", "get_pos_profile_data")
+        frappe.throw(_("No warehouse specified in POS Profile {0}. Please configure a group warehouse.").format(pos_profile))
+    
     _customer_groups_with_children = []
     for row in pos_profile_doc.customer_groups:
         children = get_child_nodes("Customer Group", row.customer_group)
@@ -578,7 +582,7 @@ def get_pos_profile_data(pos_profile):
         'currency': pos_profile_doc.currency,
         'name': pos_profile_doc.name
     }
-    frappe.log_error(f"get_pos_profile_data response:", "get_pos_profile_data") # Debug log
+    frappe.log_error(f"get_pos_profile_data response for {pos_profile}", "get_pos_profile_data")
     return response
 
 

@@ -189,7 +189,7 @@ async prepare_app_defaults(data) {
         warehouse: pos_profile_data.warehouse, // Explicitly set warehouse
         customer_groups: pos_profile_data.customer_groups.map(group => group.name)
     };
-    console.log('Settings initialized:', this.settings); // Debug log
+    console.log('Settings initialized in prepare_app_defaults:', this.settings);
 
     frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock').then(({ message }) => {
         this.allow_negative_stock = flt(message.allow_negative_stock) || false;
@@ -200,11 +200,14 @@ async prepare_app_defaults(data) {
         args: { "pos_profile": this.pos_profile },
         callback: (res) => {
             const profile = res.message || {};
-            console.log('get_pos_profile_data response:', profile); // Debug log
+            console.log('get_pos_profile_data response:', profile);
+            if (!profile.warehouse) {
+                console.error('get_pos_profile_data did not return warehouse for POS Profile:', this.pos_profile);
+            }
             Object.assign(this.settings, profile);
             this.settings.warehouse = profile.warehouse || pos_profile_data.warehouse; // Fallback
             this.settings.customer_groups = (profile.customer_groups || []).map(group => group.name || group);
-            console.log('Updated settings:', this.settings); // Debug log
+            console.log('Updated settings in prepare_app_defaults:', this.settings);
             this.make_app();
         }
     });
