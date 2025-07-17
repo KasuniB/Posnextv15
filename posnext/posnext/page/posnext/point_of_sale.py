@@ -654,21 +654,26 @@ def get_available_opening_entry():
     return open_vouchers
 
 @frappe.whitelist()
-def get_warehouses_with_stock(**kwargs):
+def get_warehouses_with_stock(doctype, txt, searchfield, start, page_len, filters, **kwargs):
     """
     Get child warehouses with stock for a given item under a parent warehouse.
     
     Args:
-        **kwargs: Arguments passed by search_link, including txt, filters, doctype, page_length, reference_doctype.
+        doctype (str): The doctype being queried (e.g., 'Warehouse').
+        txt (str): Search term.
+        searchfield (str): Field to search on (e.g., 'name').
+        start (int): Starting index for pagination.
+        page_len (int): Number of results to return.
+        filters (dict): Filters containing company, parent_warehouse, and item_code.
+        **kwargs: Additional keyword arguments (e.g., as_dict, reference_doctype).
     Returns:
         list: List of warehouse names with stock for the item.
     """
-    frappe.log_error("Using get_warehouses_with_stock (version 2025-07-17-v6)", "get_warehouses_with_stock")
-    filters = kwargs.get('filters', frappe.form_dict.get('filters'))
+    frappe.log_error("Using get_warehouses_with_stock (version 2025-07-17-v7)", "get_warehouses_with_stock")
+    frappe.log_error(f"Arguments: doctype={doctype}, txt={txt}, searchfield={searchfield}, start={start}, page_len={page_len}, filters={filters}, kwargs={kwargs}", "get_warehouses_with_stock")
+    
     if isinstance(filters, str):
         filters = frappe.parse_json(filters)
-    
-    frappe.log_error(f"get_warehouses_with_stock called with: kwargs={kwargs}, filters={filters}", "get_warehouses_with_stock")
     
     if not filters or not all(key in filters for key in ['company', 'parent_warehouse', 'item_code']):
         frappe.log_error(f"Invalid filters for get_warehouses_with_stock: {filters}", "get_warehouses_with_stock")
