@@ -578,7 +578,7 @@ def get_pos_profile_data(pos_profile):
         'currency': pos_profile_doc.currency,
         'name': pos_profile_doc.name
     }
-    frappe.log_error(f"get_pos_profile_data response: {response}", "get_pos_profile_data") # Debug log
+    frappe.log_error(f"get_pos_profile_data response:", "get_pos_profile_data") # Debug log
     return response
 
 
