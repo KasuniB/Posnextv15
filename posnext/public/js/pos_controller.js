@@ -165,31 +165,46 @@ find_available_opening_entry() {
 	}
 
 	async prepare_app_defaults(data) {
-		this.pos_opening = data.name;
-		this.company = data.company;
-		this.pos_profile = data.pos_profile;
-		this.pos_opening_time = data.period_start_date;
-		this.item_stock_map = {};
-		this.settings = {};
-		window.current_pos_profile = this.pos_profile
-		frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock').then(({ message }) => {
-			this.allow_negative_stock = flt(message.allow_negative_stock) || false;
-		});
+    this.pos_opening = data.name;
+    this.company = data.company;
+    this.pos_profile = data.pos_profile;
+    this.pos_opening_time = data.period_start_date;
+    this.item_stock_map = {};
+    this.settings = {};
+    window.current_pos_profile = this.pos_profile;
 
-		frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
-			args: { "pos_profile": this.pos_profile },
-			callback: (res) => {
-				const profile = res.message;
+    // Fetch POS Profile data directly to ensure warehouse is set
+    const pos_profile_data = await frappe.db.get_doc('POS Profile', this.pos_profile);
+    if (!pos_profile_data.warehouse) {
+        frappe.throw(__('No warehouse specified in POS Profile {0}. Please set a group warehouse.', [this.pos_profile.bold()]));
+    }
+    // Ensure the warehouse is a group warehouse
+    const warehouse_info = await frappe.db.get_value('Warehouse', pos_profile_data.warehouse, 'is_group');
+    if (!warehouse_info.message.is_group) {
+        frappe.throw(__('The warehouse in POS Profile {0} must be a group warehouse.', [this.pos_profile.bold()]));
+    }
 
-				Object.assign(this.settings, profile);
-				this.settings.customer_groups = profile.customer_groups.map(group => group.name);
+    this.settings = {
+        ...pos_profile_data,
+        warehouse: pos_profile_data.warehouse, // Explicitly set warehouse
+        customer_groups: pos_profile_data.customer_groups.map(group => group.name)
+    };
 
-				this.make_app();
-			}
-		});
-	}
+    frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock').then(({ message }) => {
+        this.allow_negative_stock = flt(message.allow_negative_stock) || false;
+    });
 
+    frappe.call({
+        method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
+        args: { "pos_profile": this.pos_profile },
+        callback: (res) => {
+            const profile = res.message;
+            Object.assign(this.settings, profile);
+            this.settings.warehouse = profile.warehouse || pos_profile_data.warehouse; // Fallback to direct fetch
+            this.make_app();
+        }
+    });
+}
 	set_opening_entry_status() {
 		this.page.set_title_sub(
 			`<span class="indicator orange">
@@ -886,6 +901,9 @@ find_available_opening_entry() {
 
 async get_available_stock(item_code, warehouse) {
     const me = this;
+    if (!me.item_stock_map[item_code]) {
+        me.item_stock_map[item_code] = {};
+    }
     return frappe.call({
         method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
         args: {
@@ -893,34 +911,7 @@ async get_available_stock(item_code, warehouse) {
             'warehouse': warehouse,
         },
         callback(res) {
-            if (!me.item_stock_map[item_code]) {
-                me.item_stock_map[item_code] = {};
-            }
-            me.item_stock_map[item_code][warehouse] = res.message;
-
-            // Optionally fetch stock for all child warehouses
-            frappe.call({
-                method: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
-                args: {
-                    company: me.frm.doc.company,
-                    parent_warehouse: me.settings.warehouse,
-                    item_code: item_code
-                },
-                callback(stock_res) {
-                    stock_res.message.forEach(wh => {
-                        frappe.call({
-                            method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
-                            args: {
-                                'item_code': item_code,
-                                'warehouse': wh
-                            },
-                            callback(wh_res) {
-                                me.item_stock_map[item_code][wh] = wh_res.message;
-                            }
-                        });
-                    });
-                }
-            });
+            me.item_stock_map[item_code][warehouse] = res.message || [0, false];
         }
     });
 }

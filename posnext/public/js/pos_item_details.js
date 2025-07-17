@@ -247,41 +247,60 @@ posnext.PointOfSale.ItemDetails = class {
 			this.discount_percentage_control.refresh();
 		}
 
-	if (this.warehouse_control) {
+if (this.warehouse_control) {
     this.warehouse_control.df.reqd = 1;
     this.warehouse_control.df.onchange = function() {
         if (this.value) {
             me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
                 me.item_stock_map = me.events.get_item_stock_map();
-                const available_qty = me.item_stock_map[me.item_row.item_code][this.value][0];
-                const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value][1]);
-                if (available_qty === undefined) {
-                    me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
-                        // item stock map is updated now reset warehouse
-                        me.warehouse_control.set_value(this.value);
-                    });
-                } else if (available_qty === 0 && is_stock_item) {
-                    me.warehouse_control.set_value('');
-                    const bold_item_code = me.item_row.item_code.bold();
-                    const bold_warehouse = this.value.bold();
-                    frappe.throw(
-                        __('Item Code: {0} is not available under warehouse {1}.', [bold_item_code, bold_warehouse])
-                    );
+                // Initialize item_stock_map for the item if not present
+                if (!me.item_stock_map[me.item_row.item_code]) {
+                    me.item_stock_map[me.item_row.item_code] = {};
                 }
-                me.actual_qty_control.set_value(available_qty);
+                // Fetch stock if not already in item_stock_map
+                if (!me.item_stock_map[me.item_row.item_code][this.value]) {
+                    me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+                        const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
+                        const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
+                        if (available_qty === 0 && is_stock_item) {
+                            me.warehouse_control.set_value('');
+                            const bold_item_code = me.item_row.item_code.bold();
+                            const bold_warehouse = this.value.bold();
+                            frappe.throw(
+                                __('Item Code: {0} is not available under warehouse {1}.', [bold_item_code, bold_warehouse])
+                            );
+                        }
+                        me.actual_qty_control.set_value(available_qty);
+                    });
+                } else {
+                    const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
+                    const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
+                    if (available_qty === 0 && is_stock_item) {
+                        me.warehouse_control.set_value('');
+                        const bold_item_code = me.item_row.item_code.bold();
+                        const bold_warehouse = this.value.bold();
+                        frappe.throw(
+                            __('Item Code: {0} is not available under warehouse {1}.', [bold_item_code, bold_warehouse])
+                        );
+                    }
+                    me.actual_qty_control.set_value(available_qty);
+                }
             });
         }
     };
-    this.warehouse_control.df.get_query = () => {
-        return {
-            query: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
-            filters: {
-                company: this.events.get_frm().doc.company,
-                parent_warehouse: this.settings.warehouse, // From POS Profile
-                item_code: this.current_item.item_code // Filter by current item
-            }
-        };
+  this.warehouse_control.df.get_query = () => {
+    if (!this.settings.warehouse) {
+        frappe.throw(__('No warehouse specified in POS Profile. Please configure a group warehouse in POS Profile {0}.', [this.events.get_frm().doc.pos_profile.bold()]));
+    }
+    return {
+        query: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
+        filters: {
+            company: this.events.get_frm().doc.company,
+            parent_warehouse: this.settings.warehouse,
+            item_code: this.current_item.item_code
+        }
     };
+};
     this.warehouse_control.refresh();
 }
 
