@@ -556,7 +556,6 @@ def set_customer_info(fieldname, customer, value=""):
 		frappe.db.set_value("Customer", customer, "mobile_no", value)
 	contact_doc.save()
 
-
 @frappe.whitelist()
 def get_pos_profile_data(pos_profile):
     pos_profile_doc = frappe.get_doc('POS Profile', pos_profile)
@@ -570,15 +569,17 @@ def get_pos_profile_data(pos_profile):
         if row.default:
             default_payment = row.mode_of_payment
     
-    return {
+    response = {
         'warehouse': pos_profile_doc.warehouse,
         'company': pos_profile_doc.company,
         'customer_groups': _customer_groups_with_children,
         'default_payment': default_payment,
-        'selling_price_list': pos_profile_doc.selling_price_list,  # Include for pricing
-        'currency': pos_profile_doc.currency,  # Include for currency-related settings
-        'name': pos_profile_doc.name  # Include POS Profile name
+        'selling_price_list': pos_profile_doc.selling_price_list,
+        'currency': pos_profile_doc.currency,
+        'name': pos_profile_doc.name
     }
+    frappe.log_error(f"get_pos_profile_data response: {response}", "get_pos_profile_data") # Debug log
+    return response
 
 
 @frappe.whitelist()
@@ -759,7 +760,27 @@ def get_available_opening_entry():
 
 @frappe.whitelist()
 def get_warehouses_with_stock(company, parent_warehouse, item_code):
-    # Fetch warehouses with non-zero stock for the item
+    if not parent_warehouse:
+        frappe.throw(_("No parent warehouse specified. Please configure a group warehouse in the POS Profile."))
+    # Debug: Log input parameters
+    frappe.log_error(f"get_warehouses_with_stock called with: company={company}, parent_warehouse={parent_warehouse}, item_code={item_code}", "get_warehouses_with_stock")
+    
+    # Check if parent_warehouse is a group warehouse
+    is_group = frappe.db.get_value("Warehouse", parent_warehouse, "is_group")
+    if not is_group:
+        frappe.throw(_("Parent warehouse {0} is not a group warehouse.").format(parent_warehouse))
+    
+    # Get child warehouses
+    lft, rgt = frappe.db.get_value("Warehouse", parent_warehouse, ["lft", "rgt"])
+    child_warehouses = frappe.db.get_all(
+        "Warehouse",
+        fields=["name"],
+        filters={"lft": [">=", lft], "rgt": ["<=", rgt], "is_group": 0},
+        pluck="name"
+    )
+    frappe.log_error(f"Child warehouses found: {child_warehouses}", "get_warehouses_with_stock")
+    
+    # Fetch warehouses with stock
     warehouses = frappe.db.sql("""
         SELECT w.name
         FROM `tabWarehouse` w
@@ -771,7 +792,9 @@ def get_warehouses_with_stock(company, parent_warehouse, item_code):
         AND b.actual_qty > 0
     """, (company, parent_warehouse, item_code), as_dict=True)
     
-    return [w.name for w in warehouses]
+    warehouse_list = [w.name for w in warehouses]
+    frappe.log_error(f"Warehouses with stock: {warehouse_list}", "get_warehouses_with_stock")
+    return warehouse_list
 
 @frappe.whitelist()
 def get_warehouse_with_highest_stock(company, parent_warehouse, item_code):

@@ -164,7 +164,7 @@ find_available_opening_entry() {
 		};
 	}
 
-	async prepare_app_defaults(data) {
+async prepare_app_defaults(data) {
     this.pos_opening = data.name;
     this.company = data.company;
     this.pos_profile = data.pos_profile;
@@ -189,6 +189,7 @@ find_available_opening_entry() {
         warehouse: pos_profile_data.warehouse, // Explicitly set warehouse
         customer_groups: pos_profile_data.customer_groups.map(group => group.name)
     };
+    console.log('Settings initialized:', this.settings); // Debug log
 
     frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock').then(({ message }) => {
         this.allow_negative_stock = flt(message.allow_negative_stock) || false;
@@ -198,9 +199,12 @@ find_available_opening_entry() {
         method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
         args: { "pos_profile": this.pos_profile },
         callback: (res) => {
-            const profile = res.message;
+            const profile = res.message || {};
+            console.log('get_pos_profile_data response:', profile); // Debug log
             Object.assign(this.settings, profile);
-            this.settings.warehouse = profile.warehouse || pos_profile_data.warehouse; // Fallback to direct fetch
+            this.settings.warehouse = profile.warehouse || pos_profile_data.warehouse; // Fallback
+            this.settings.customer_groups = (profile.customer_groups || []).map(group => group.name || group);
+            console.log('Updated settings:', this.settings); // Debug log
             this.make_app();
         }
     });
@@ -393,78 +397,70 @@ find_available_opening_entry() {
 		})
 	}
 
-	init_item_details() {
-		this.item_details = new posnext.PointOfSale.ItemDetails({
-			wrapper: this.$components_wrapper,
-			settings: this.settings,
-			events: {
-				get_frm: () => this.frm,
-
-				toggle_item_selector: (minimize) => {
-					this.item_selector.resize_selector(minimize);
-					this.cart.toggle_numpad(minimize);
-				},
-
-				form_updated: (item, field, value) => {
-					const item_row = frappe.model.get_doc(item.doctype, item.name);
-					if(field === 'qty' && this.frm.doc.is_return && value >=0){
-						frappe.throw("Qty must be negative for return document" )
-					}
-					if (item_row && item_row[field] != value) {
-						const args = {
-							field,
-							value,
-							item: this.item_details.current_item
-						};
-						return this.on_cart_update(args);
-					}
-
-					return Promise.resolve();
-				},
-
-				highlight_cart_item: (item) => {
-					const cart_item = this.cart.get_cart_item(item);
-					this.cart.toggle_item_highlight(cart_item);
-				},
-
-				item_field_focused: (fieldname) => {
-					this.cart.toggle_numpad_field_edit(fieldname);
-				},
-				set_value_in_current_cart_item: (selector, value) => {
-					this.cart.update_selector_value_in_cart_item(selector, value, this.item_details.current_item);
-				},
-				clone_new_batch_item_in_frm: (batch_serial_map, item) => {
-					// called if serial nos are 'auto_selected' and if those serial nos belongs to multiple batches
-					// for each unique batch new item row is added in the form & cart
-					Object.keys(batch_serial_map).forEach(batch => {
-						const item_to_clone = this.frm.doc.items.find(i => i.name == item.name);
-						const new_row = this.frm.add_child("items", { ...item_to_clone });
-						// update new serialno and batch
-						new_row.batch_no = batch;
-						new_row.serial_no = batch_serial_map[batch].join(`\n`);
-						new_row.qty = batch_serial_map[batch].length;
-						this.frm.doc.items.forEach(row => {
-							if (item.item_code === row.item_code) {
-								this.update_cart_html(row);
-							}
-						});
-					})
-				},
-				remove_item_from_cart: () => this.remove_item_from_cart(),
-				get_item_stock_map: () => this.item_stock_map,
-				close_item_details: () => {
-					selected_item = null
-					this.item_details.toggle_item_details_section(null);
-					this.cart.prev_action = null;
-					this.cart.toggle_item_highlight();
-				},
-				get_available_stock: (item_code, warehouse) => this.get_available_stock(item_code, warehouse)
-			}
-		});
-		if(selected_item){
-			this.item_details.toggle_item_details_section(selected_item);
-		}
-	}
+init_item_details() {
+    if (!this.settings) {
+        frappe.throw(__('Settings not initialized. Please ensure POS Profile data is loaded.'));
+    }
+    this.item_details = new posnext.PointOfSale.ItemDetails({
+        wrapper: this.$components_wrapper,
+        settings: this.settings, // Explicitly pass settings
+        events: {
+            get_frm: () => this.frm,
+            toggle_item_selector: (minimize) => {
+                this.item_selector.resize_selector(minimize);
+                this.cart.toggle_numpad(minimize);
+            },
+            form_updated: (item, field, value) => {
+                const item_row = frappe.model.get_doc(item.doctype, item.name);
+                if (field === 'qty' && this.frm.doc.is_return && value >= 0) {
+                    frappe.throw("Qty must be negative for return document");
+                }
+                if (item_row && item_row[field] != value) {
+                    const args = { field, value, item: this.item_details.current_item };
+                    return this.on_cart_update(args);
+                }
+                return Promise.resolve();
+            },
+            highlight_cart_item: (item) => {
+                const cart_item = this.cart.get_cart_item(item);
+                this.cart.toggle_item_highlight(cart_item);
+            },
+            item_field_focused: (fieldname) => {
+                this.cart.toggle_numpad_field_edit(fieldname);
+            },
+            set_value_in_current_cart_item: (selector, value) => {
+                this.cart.update_selector_value_in_cart_item(selector, value, this.item_details.current_item);
+            },
+            clone_new_batch_item_in_frm: (batch_serial_map, item) => {
+                Object.keys(batch_serial_map).forEach(batch => {
+                    const item_to_clone = this.frm.doc.items.find(i => i.name == item.name);
+                    const new_row = this.frm.add_child("items", { ...item_to_clone });
+                    new_row.batch_no = batch;
+                    new_row.serial_no = batch_serial_map[batch].join(`\n`);
+                    new_row.qty = batch_serial_map[batch].length;
+                    this.frm.doc.items.forEach(row => {
+                        if (item.item_code === row.item_code) {
+                            this.update_cart_html(row);
+                        }
+                    });
+                });
+            },
+            remove_item_from_cart: () => this.remove_item_from_cart(),
+            get_item_stock_map: () => this.item_stock_map,
+            close_item_details: () => {
+                selected_item = null;
+                this.item_details.toggle_item_details_section(null);
+                this.cart.prev_action = null;
+                this.cart.toggle_item_highlight();
+            },
+            get_available_stock: (item_code, warehouse) => this.get_available_stock(item_code, warehouse)
+        }
+    });
+    console.log('ItemDetails initialized with settings:', this.settings); // Debug log
+    if (selected_item) {
+        this.item_details.toggle_item_details_section(selected_item);
+    }
+}
 
 	init_payments() {
 		this.payment = new posnext.PointOfSale.Payment({
@@ -605,26 +601,25 @@ find_available_opening_entry() {
 	}
 
 	make_sales_invoice_frm() {
-		const doctype = 'Sales Invoice';
-		return new Promise(resolve => {
-			if (this.frm) {
-				this.frm = this.get_new_frm(this.frm);
-				this.frm.doc.items = [];
-				this.frm.doc.is_pos = 1
-				this.frm.doc.set_warehouse = this.settings.warehouse
-				resolve();
-			} else {
-				frappe.model.with_doctype(doctype, () => {
-					this.frm = this.get_new_frm();
-					this.frm.doc.items = [];
-					this.frm.doc.is_pos = 1
-					this.frm.doc.set_warehouse = this.settings.warehouse
-					resolve();
-				});
-			}
-		});
-	}
-
+    const doctype = 'Sales Invoice';
+    return new Promise(resolve => {
+        if (this.frm) {
+            this.frm = this.get_new_frm(this.frm);
+            this.frm.doc.items = [];
+            this.frm.doc.is_pos = 1;
+            // Removed: this.frm.doc.set_warehouse = this.settings.warehouse
+            resolve();
+        } else {
+            frappe.model.with_doctype(doctype, () => {
+                this.frm = this.get_new_frm();
+                this.frm.doc.items = [];
+                this.frm.doc.is_pos = 1;
+                // Removed: this.frm.doc.set_warehouse = this.settings.warehouse
+                resolve();
+            });
+        }
+    });
+}
 	get_new_frm(_frm) {
 		const doctype = 'Sales Invoice';
 		const page = $('<div>');
@@ -671,7 +666,7 @@ find_available_opening_entry() {
 		this.page.set_indicator(this.pos_profile, "blue");
 	}
 
-	async on_cart_update(args) {
+async on_cart_update(args) {
     console.log("Updating Cart");
     let item_row = undefined;
     try {
@@ -684,11 +679,9 @@ find_available_opening_entry() {
 
         if (item_row_exists) {
             if (field === 'qty') value = flt(value);
-
             if (['qty', 'conversion_factor'].includes(field) && value > 0 && !this.allow_negative_stock) {
                 const qty_needed = field === 'qty' ? value * item_row.conversion_factor : item_row.qty * value;
             }
-
             if (this.is_current_item_being_edited(item_row) || from_selector) {
                 await frappe.model.set_value(item_row.doctype, item_row.name, field, value);
                 this.update_cart_html(item_row);
@@ -715,27 +708,31 @@ find_available_opening_entry() {
                 method: 'posnext.posnext.page.posnext.point_of_sale.get_warehouse_with_highest_stock',
                 args: {
                     company: this.frm.doc.company,
-                    parent_warehouse: this.settings.warehouse,
+                    parent_warehouse: this.settings.warehouse || '',
                     item_code: item_code
                 }
             });
             if (stock_res.message) {
                 default_warehouse = stock_res.message.warehouse;
+                if (!this.item_stock_map[item_code]) {
+                    this.item_stock_map[item_code] = {};
+                }
+                this.item_stock_map[item_code][default_warehouse] = [stock_res.message.actual_qty, true];
+            } else {
+                frappe.show_alert({
+                    message: __('No stock available for Item Code: {0} under any warehouse.', [item_code.bold()]),
+                    indicator: 'red'
+                });
+                frappe.utils.play_sound("error");
+                return; // Prevent adding item if no stock
             }
-			if (!default_warehouse) {
-    		frappe.show_alert({
-       		 message: __('No stock available for Item Code: {0} under any warehouse.', [item_code.bold()]),
-        	indicator: 'red'
-   			 });
-    		frappe.utils.play_sound("error");
-			}
 
             uom = uom || item.stock_uom || 'Nos';
             let qty = (field === 'qty' && value) ? flt(value) : 1;
             if (field === 'serial_no') qty = value.split(`\n`).length || 0;
 
             if (serial_no) {
-                await this.check_serial_no_availablilty(item_code, default_warehouse || this.frm.doc.set_warehouse, serial_no);
+                await this.check_serial_no_availablilty(item_code, default_warehouse, serial_no);
             }
 
             const new_item = {
@@ -748,10 +745,11 @@ find_available_opening_entry() {
                 amount: flt(rate) * flt(qty),
                 custom_item_uoms,
                 custom_logical_rack,
-                warehouse: default_warehouse // Set to warehouse with highest stock
+                warehouse: default_warehouse
             };
 
             item_row = this.frm.add_child('items', new_item);
+            console.log('New item added with warehouse:', new_item.warehouse); // Debug log
             await this.trigger_new_item_events(item_row);
             this.frm.refresh_field("items");
             this.update_cart_html(item_row);
