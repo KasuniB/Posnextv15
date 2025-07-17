@@ -559,18 +559,26 @@ def set_customer_info(fieldname, customer, value=""):
 
 @frappe.whitelist()
 def get_pos_profile_data(pos_profile):
-	pos_profile = frappe.get_doc("POS Profile", pos_profile)
-	pos_profile = pos_profile.as_dict()
-
-	_customer_groups_with_children = []
-	for row in pos_profile.customer_groups:
-		children = get_child_nodes("Customer Group", row.customer_group)
-		_customer_groups_with_children.extend(children)
-	for row in pos_profile.payments:
-		if row.default:
-			pos_profile['default_payment'] = row.mode_of_payment
-	pos_profile.customer_groups = _customer_groups_with_children
-	return pos_profile
+    pos_profile_doc = frappe.get_doc('POS Profile', pos_profile)
+    _customer_groups_with_children = []
+    for row in pos_profile_doc.customer_groups:
+        children = get_child_nodes("Customer Group", row.customer_group)
+        _customer_groups_with_children.extend(children)
+    
+    default_payment = None
+    for row in pos_profile_doc.payments:
+        if row.default:
+            default_payment = row.mode_of_payment
+    
+    return {
+        'warehouse': pos_profile_doc.warehouse,
+        'company': pos_profile_doc.company,
+        'customer_groups': _customer_groups_with_children,
+        'default_payment': default_payment,
+        'selling_price_list': pos_profile_doc.selling_price_list,  # Include for pricing
+        'currency': pos_profile_doc.currency,  # Include for currency-related settings
+        'name': pos_profile_doc.name  # Include POS Profile name
+    }
 
 
 @frappe.whitelist()
