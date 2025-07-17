@@ -772,6 +772,59 @@ def get_warehouses_with_stock(**kwargs):
     Returns:
         list: List of warehouse names with stock for the item.
     """
+    frappe.log_error("Using get_warehouses_with_stock (version 2025-07-17-v3)", "get_warehouses_with_stock")
+    filters = kwargs.get('filters', frappe.form_dict.get('filters'))
+    if isinstance(filters, str):
+        filters = frappe.parse_json(filters)
+    
+    frappe.log_error(f"get_warehouses_with_stock called with: kwargs={kwargs}, filters={filters}", "get_warehouses_with_stock")
+    
+    if not filters or not all(key in filters for key in ['company', 'parent_warehouse', 'item_code']):
+        frappe.log_error(f"Invalid filters for get_warehouses_with_stock: {filters}", "get_warehouses_with_stock")
+        frappe.throw(_("Invalid filters. Company, parent_warehouse, and item_code are required."))
+    
+    company = filters.get('company')
+    parent_warehouse = filters.get('parent_warehouse')
+    item_code = filters.get('item_code')
+    
+    if not parent_warehouse:
+        frappe.throw(_("No parent warehouse specified. Please configure a group warehouse in the POS Profile."))
+    
+    is_group = frappe.db.get_value("Warehouse", parent_warehouse, "is_group", cache=True)
+    if not is_group:
+        frappe.throw(_("Parent warehouse {0} is not a group warehouse.").format(parent_warehouse))
+    
+    lft, rgt = frappe.db.get_value("Warehouse", parent_warehouse, ["lft", "rgt"], cache=True)
+    child_warehouses = frappe.db.get_all(
+        "Warehouse",
+        fields=["name"],
+        filters={"lft": [">=", lft], "rgt": ["<=", rgt], "is_group": 0},
+        pluck="name"
+    )
+    frappe.log_error(f"Child warehouses found: {child_warehouses}", "get_warehouses_with_stock")
+    
+    warehouses = frappe.db.sql("""
+        SELECT w.name
+        FROM `tabWarehouse` w
+        JOIN `tabBin` b ON w.name = b.warehouse
+        WHERE w.company = %s
+        AND w.parent_warehouse = %s
+        AND w.is_group = 0
+        AND b.item_code = %s
+        AND b.actual_qty > 0
+    """, (company, parent_warehouse, item_code), as_dict=True)
+    
+    warehouse_list = [w.name for w in warehouses]
+    frappe.log_error(f"Warehouses with stock: {warehouse_list}", "get_warehouses_with_stock")
+    return warehouse_list
+    """
+    Get child warehouses with stock for a given item under a parent warehouse.
+    
+    Args:
+        **kwargs: Arguments passed by search_link, including txt, filters, doctype, page_length, reference_doctype.
+    Returns:
+        list: List of warehouse names with stock for the item.
+    """
     # Extract filters from kwargs or frappe.form_dict
     filters = kwargs.get('filters', frappe.form_dict.get('filters'))
     if isinstance(filters, str):
