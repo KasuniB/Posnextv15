@@ -11,13 +11,11 @@ posnext.PointOfSale.ItemDetails = class {
 
 		this.init_component();
 	}
-
 init_component() {
     const frm = this.events.get_frm();
     if (!this.settings || !this.settings.warehouse) {
         console.error('ItemDetails: Settings or warehouse missing:', this.settings);
         if (frm?.doc?.pos_profile) {
-            // Fallback: Fetch warehouse from POS Profile
             frappe.db.get_value('POS Profile', frm.doc.pos_profile, 'warehouse').then(({ message }) => {
                 if (message.warehouse) {
                     this.settings = this.settings || {};
@@ -28,11 +26,15 @@ init_component() {
                     this.bind_events();
                     this.attach_shortcuts();
                 } else {
-                    frappe.throw(__('No warehouse specified in POS Profile {0}. Please configure a group warehouse.', [frm.doc.pos_profile.bold()]));
+                    console.warn('ItemDetails: No warehouse in POS Profile:', frm.doc.pos_profile);
+                    this.settings = this.settings || {};
+                    this.prepare_dom();
+                    this.init_child_components();
+                    this.bind_events();
+                    this.attach_shortcuts();
                 }
             });
         } else {
-            // Log warning and proceed without warehouse-dependent components
             console.warn('ItemDetails: POS Profile not set in Sales Invoice. Initializing without warehouse.');
             this.settings = this.settings || {};
             this.prepare_dom();

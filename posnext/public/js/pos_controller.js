@@ -221,19 +221,45 @@ async prepare_app_defaults(data) {
 			</span>`);
 	}
 
-	make_app() {
-    return frappe.run_serially([
-        () => this.set_pos_profile_data(), // Ensure pos_profile is set first
-        () => {
-            console.log('make_app: frm.doc after set_pos_profile_data:', this.frm.doc);
-            this.prepare_dom();
-            this.prepare_components();
-            this.prepare_menu();
-            this.make_new_invoice();
-        }
-    ]);
-}
 
+make_app() {
+    return frappe.run_serially([
+        () => {
+            try {
+                return this.make_sales_invoice_frm();
+            } catch (error) {
+                console.error('Error in make_sales_invoice_frm:', error);
+                frappe.throw(__('Failed to create Sales Invoice form: {0}', [error.message]));
+            }
+        },
+        () => {
+            try {
+                return this.set_pos_profile_data();
+            } catch (error) {
+                console.error('Error in set_pos_profile_data:', error);
+                frappe.throw(__('Failed to set POS Profile data: {0}', [error.message]));
+            }
+        },
+        () => {
+            try {
+                console.log('make_app: frm.doc after set_pos_profile_data:', this.frm?.doc);
+                this.prepare_dom();
+                this.prepare_components();
+                this.prepare_menu();
+                this.make_new_invoice();
+            } catch (error) {
+                console.error('Error in make_app DOM/components:', error);
+                frappe.throw(__('Failed to initialize POS UI: {0}', [error.message]));
+            }
+        }
+    ]).catch(error => {
+        console.error('make_app failed:', error);
+        frappe.show_alert({
+            message: __('Error initializing POS: {0}', [error.message]),
+            indicator: 'red'
+        });
+    });
+}
 	prepare_dom() {
 		this.wrapper.append(
 			`<div class="point-of-sale-app"></div>`
@@ -609,23 +635,32 @@ init_item_details() {
 
 	}
 
-	make_sales_invoice_frm() {
+ make_sales_invoice_frm() {
     const doctype = 'Sales Invoice';
     return new Promise(resolve => {
-        if (this.frm) {
-            this.frm = this.get_new_frm(this.frm);
-            this.frm.doc.items = [];
-            this.frm.doc.is_pos = 1;
-            // Removed: this.frm.doc.set_warehouse = this.settings.warehouse
-            resolve();
-        } else {
-            frappe.model.with_doctype(doctype, () => {
-                this.frm = this.get_new_frm();
+        try {
+            if (this.frm) {
+                this.frm = this.get_new_frm(this.frm);
                 this.frm.doc.items = [];
                 this.frm.doc.is_pos = 1;
-                // Removed: this.frm.doc.set_warehouse = this.settings.warehouse
+                console.log('make_sales_invoice_frm: Reused existing frm:', this.frm.doc);
                 resolve();
-            });
+            } else {
+                frappe.model.with_doctype(doctype, () => {
+                    this.frm = this.get_new_frm();
+                    if (!this.frm) {
+                        console.error('make_sales_invoice_frm: get_new_frm returned undefined');
+                        frappe.throw(__('Failed to create new Sales Invoice form'));
+                    }
+                    this.frm.doc.items = [];
+                    this.frm.doc.is_pos = 1;
+                    console.log('make_sales_invoice_frm: Created new frm:', this.frm.doc);
+                    resolve();
+                });
+            }
+        } catch (error) {
+            console.error('Error in make_sales_invoice_frm:', error);
+            frappe.throw(__('Failed to create Sales Invoice form: {0}', [error.message]));
         }
     });
 }
@@ -660,10 +695,20 @@ init_item_details() {
 		});
 	}
 
-	set_pos_profile_data() {
+set_pos_profile_data() {
     if (!this.pos_profile) {
         console.error('set_pos_profile_data: POS Profile not set in Controller');
         frappe.throw(__('POS Profile not set. Please configure a POS Profile.'));
+    }
+    if (!this.frm) {
+        console.warn('set_pos_profile_data: frm is undefined, attempting to initialize');
+        return this.make_sales_invoice_frm().then(() => {
+            if (!this.frm) {
+                console.error('set_pos_profile_data: Failed to initialize frm');
+                frappe.throw(__('Failed to initialize Sales Invoice form'));
+            }
+            return this.set_pos_profile_data(); // Retry after initializing frm
+        });
     }
     if (this.company && !this.frm.doc.company) {
         this.frm.doc.company = this.company;
@@ -677,6 +722,7 @@ init_item_details() {
         console.error('set_pos_profile_data: Company not set in Sales Invoice');
         return;
     }
+    console.log('set_pos_profile_data: frm.doc before set_pos_data:', this.frm.doc);
     return this.frm.trigger("set_pos_data");
 }
 
