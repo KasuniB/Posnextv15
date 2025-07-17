@@ -656,85 +656,105 @@ find_available_opening_entry() {
 		this.page.set_indicator(this.pos_profile, "blue");
 	}
 
-	  async on_cart_update(args) {
-        console.log("Updating Cart");
-        let item_row = undefined;
-        try {
-            let { field, value, item } = args;
-            item_row = this.get_item_from_frm(item);
-            const item_row_exists = !$.isEmptyObject(item_row);
+	async on_cart_update(args) {
+    console.log("Updating Cart");
+    let item_row = undefined;
+    try {
+        let { field, value, item } = args;
+        item_row = this.get_item_from_frm(item);
+        const item_row_exists = !$.isEmptyObject(item_row);
 
-            const from_selector = field === 'qty' && value === "+1";
-            if (from_selector) value = flt(item_row.stock_qty) + 1;
+        const from_selector = field === 'qty' && value === "+1";
+        if (from_selector) value = flt(item_row.stock_qty) + 1;
 
-            if (item_row_exists) {
-                if (field === 'qty') value = flt(value);
+        if (item_row_exists) {
+            if (field === 'qty') value = flt(value);
 
-                if (['qty', 'conversion_factor'].includes(field) && value > 0 && !this.allow_negative_stock) {
-                    const qty_needed = field === 'qty' ? value * item_row.conversion_factor : item_row.qty * value;
-                }
-
-                if (this.is_current_item_being_edited(item_row) || from_selector) {
-                    await frappe.model.set_value(item_row.doctype, item_row.name, field, value);
-                    this.update_cart_html(item_row);
-                }
-
-            } else {
-                if (!this.frm.doc.customer && !this.settings.custom_mobile_number_based_customer) {
-                    return this.raise_customer_selection_alert();
-                }
-
-                frappe.flags.ignore_company_party_validation = true;
-                let { item_code, batch_no, serial_no, rate, uom, valuation_rate, custom_item_uoms, custom_logical_rack } = item;
-
-                if (!rate || flt(rate) === 0) {
-                    const res = await frappe.call({
-                        method: 'erpnext.stock.get_item_details.get_item_price',
-                        args: { item_code, price_list: this.settings.selling_price_list }
-                    });
-                    rate = flt(res.message.price_list_rate) || 0;
-                }
-
-                uom = uom || item.stock_uom || 'Nos';
-                let qty = (field === 'qty' && value) ? flt(value) : 1;
-                if (field === 'serial_no') qty = value.split(`\n`).length || 0;
-
-                if (serial_no) {
-                    await this.check_serial_no_availablilty(item_code, this.frm.doc.set_warehouse, serial_no);
-                }
-
-                const new_item = {
-                    item_code,
-                    batch_no,
-                    serial_no,
-                    rate,
-                    uom,
-                    qty,
-                    amount: flt(rate) * flt(qty),
-                    custom_item_uoms,
-                    custom_logical_rack
-                };
-
-                item_row = this.frm.add_child('items', new_item);
-                await this.trigger_new_item_events(item_row);
-                this.frm.refresh_field("items");
-                this.update_cart_html(item_row);
-
-                if (this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
-                if (this.check_serial_batch_selection_needed(item_row) && !this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
+            if (['qty', 'conversion_factor'].includes(field) && value > 0 && !this.allow_negative_stock) {
+                const qty_needed = field === 'qty' ? value * item_row.conversion_factor : item_row.qty * value;
             }
 
-        } catch (error) {
-            console.log(error);
-        } finally {
-            let total_incoming_rate = 0;
-            this.frm.doc.items.forEach(item => {
-                total_incoming_rate += (flt(item.valuation_rate) * flt(item.qty));
+            if (this.is_current_item_being_edited(item_row) || from_selector) {
+                await frappe.model.set_value(item_row.doctype, item_row.name, field, value);
+                this.update_cart_html(item_row);
+            }
+        } else {
+            if (!this.frm.doc.customer && !this.settings.custom_mobile_number_based_customer) {
+                return this.raise_customer_selection_alert();
+            }
+
+            frappe.flags.ignore_company_party_validation = true;
+            let { item_code, batch_no, serial_no, rate, uom, valuation_rate, custom_item_uoms, custom_logical_rack } = item;
+
+            if (!rate || flt(rate) === 0) {
+                const res = await frappe.call({
+                    method: 'erpnext.stock.get_item_details.get_item_price',
+                    args: { item_code, price_list: this.settings.selling_price_list }
+                });
+                rate = flt(res.message.price_list_rate) || 0;
+            }
+
+            // Fetch the warehouse with the highest stock
+            let default_warehouse = '';
+            const stock_res = await frappe.call({
+                method: 'posnext.posnext.page.posnext.point_of_sale.get_warehouse_with_highest_stock',
+                args: {
+                    company: this.frm.doc.company,
+                    parent_warehouse: this.settings.warehouse,
+                    item_code: item_code
+                }
             });
-            this.item_selector.update_total_incoming_rate(total_incoming_rate);
-            return item_row;
+            if (stock_res.message) {
+                default_warehouse = stock_res.message.warehouse;
+            }
+			if (!default_warehouse) {
+    		frappe.show_alert({
+       		 message: __('No stock available for Item Code: {0} under any warehouse.', [item_code.bold()]),
+        	indicator: 'red'
+   			 });
+    		frappe.utils.play_sound("error");
+			}
+
+            uom = uom || item.stock_uom || 'Nos';
+            let qty = (field === 'qty' && value) ? flt(value) : 1;
+            if (field === 'serial_no') qty = value.split(`\n`).length || 0;
+
+            if (serial_no) {
+                await this.check_serial_no_availablilty(item_code, default_warehouse || this.frm.doc.set_warehouse, serial_no);
+            }
+
+            const new_item = {
+                item_code,
+                batch_no,
+                serial_no,
+                rate,
+                uom,
+                qty,
+                amount: flt(rate) * flt(qty),
+                custom_item_uoms,
+                custom_logical_rack,
+                warehouse: default_warehouse // Set to warehouse with highest stock
+            };
+
+            item_row = this.frm.add_child('items', new_item);
+            await this.trigger_new_item_events(item_row);
+            this.frm.refresh_field("items");
+            this.update_cart_html(item_row);
+
+            if (this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
+            if (this.check_serial_batch_selection_needed(item_row) && !this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
         }
+    } catch (error) {
+        console.log(error);
+    } finally {
+        let total_incoming_rate = 0;
+        this.frm.doc.items.forEach(item => {
+            total_incoming_rate += (flt(item.valuation_rate) * flt(item.qty));
+        });
+        this.item_selector.update_total_incoming_rate(total_incoming_rate);
+        return item_row;
     }
+}
     
 	raise_customer_selection_alert() {
 		frappe.dom.unfreeze();
@@ -864,21 +884,46 @@ find_available_opening_entry() {
 		}
 	}
 
-	get_available_stock(item_code, warehouse) {
-		const me = this;
-		return frappe.call({
-			method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
-			args: {
-				'item_code': item_code,
-				'warehouse': warehouse,
-			},
-			callback(res) {
-				if (!me.item_stock_map[item_code])
-					me.item_stock_map[item_code] = {};
-				me.item_stock_map[item_code][warehouse] = res.message;
-			}
-		});
-	}
+async get_available_stock(item_code, warehouse) {
+    const me = this;
+    return frappe.call({
+        method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
+        args: {
+            'item_code': item_code,
+            'warehouse': warehouse,
+        },
+        callback(res) {
+            if (!me.item_stock_map[item_code]) {
+                me.item_stock_map[item_code] = {};
+            }
+            me.item_stock_map[item_code][warehouse] = res.message;
+
+            // Optionally fetch stock for all child warehouses
+            frappe.call({
+                method: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
+                args: {
+                    company: me.frm.doc.company,
+                    parent_warehouse: me.settings.warehouse,
+                    item_code: item_code
+                },
+                callback(stock_res) {
+                    stock_res.message.forEach(wh => {
+                        frappe.call({
+                            method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
+                            args: {
+                                'item_code': item_code,
+                                'warehouse': wh
+                            },
+                            callback(wh_res) {
+                                me.item_stock_map[item_code][wh] = wh_res.message;
+                            }
+                        });
+                    });
+                }
+            });
+        }
+    });
+}
 
 	update_item_field(value, field_or_action) {
 		if (field_or_action === 'checkout') {

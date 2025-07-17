@@ -748,3 +748,37 @@ def get_available_opening_entry():
 	)
 	
 	return open_vouchers
+
+@frappe.whitelist()
+def get_warehouses_with_stock(company, parent_warehouse, item_code):
+    # Fetch warehouses with non-zero stock for the item
+    warehouses = frappe.db.sql("""
+        SELECT w.name
+        FROM `tabWarehouse` w
+        JOIN `tabBin` b ON w.name = b.warehouse
+        WHERE w.company = %s
+        AND w.parent_warehouse = %s
+        AND w.is_group = 0
+        AND b.item_code = %s
+        AND b.actual_qty > 0
+    """, (company, parent_warehouse, item_code), as_dict=True)
+    
+    return [w.name for w in warehouses]
+
+@frappe.whitelist()
+def get_warehouse_with_highest_stock(company, parent_warehouse, item_code):
+    # Fetch warehouse with the highest stock for the item
+    warehouses = frappe.db.sql("""
+        SELECT w.name as warehouse, b.actual_qty
+        FROM `tabWarehouse` w
+        JOIN `tabBin` b ON w.name = b.warehouse
+        WHERE w.company = %s
+        AND w.parent_warehouse = %s
+        AND w.is_group = 0
+        AND b.item_code = %s
+        AND b.actual_qty > 0
+        ORDER BY b.actual_qty DESC
+        LIMIT 1
+    """, (company, parent_warehouse, item_code), as_dict=True)
+    
+    return warehouses[0] if warehouses else None
