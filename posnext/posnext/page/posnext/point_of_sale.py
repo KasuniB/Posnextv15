@@ -670,7 +670,7 @@ def get_warehouses_with_stock(doctype, txt, searchfield, start, page_len, filter
         list: List of warehouse names with stock for the item.
     """
     frappe.log_error("Using get_warehouses_with_stock (version 2025-07-17-v7)", "get_warehouses_with_stock")
-    frappe.log_error(f"Arguments: doctype, txt, searchfield, start, page_len, filters, kwargs, "get_warehouses_with_stock")
+   
     
     if isinstance(filters, str):
         filters = frappe.parse_json(filters)
