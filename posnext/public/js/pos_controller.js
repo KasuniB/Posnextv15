@@ -6,15 +6,46 @@ posnext.PointOfSale.Controller = class {
 		console.log("CONTROLLLLLERE")
 		this.wrapper = $(wrapper).find('.layout-main-section');
 		this.page = wrapper.page;
-		frappe.run_serially([
-			() => this.reload_status = false,
-			() => this.check_opening_entry(""),
-			() => this.reload_status = true,
-		]);
-
+		
+		// Show loading indicator immediately
+		this.show_loading_indicator();
+		
+		// Use async initialization to prevent blocking
+		this.initialize_async();
 		this.setup_form_events();
-
 	}
+
+	show_loading_indicator() {
+		this.wrapper.html(`
+			<div class="pos-loading-container" style="
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				justify-content: center;
+				height: 80vh;
+				font-size: 16px;
+				color: #666;
+			">
+				<div class="spinner"></div>
+				<div style="margin-top: 20px;">Loading POS System...</div>
+			</div>
+		`);
+	}
+
+	async initialize_async() {
+		try {
+			this.reload_status = false;
+			await this.check_opening_entry("");
+			this.reload_status = true;
+		} catch (error) {
+			console.error('Initialization error:', error);
+			frappe.show_alert({
+				message: __('Error initializing POS: {0}', [error.message]),
+				indicator: 'red'
+			});
+		}
+	}
+
 	setup_form_events() {
 		frappe.ui.form.on('Sales Invoice', {
 			after_save: function(frm) {
@@ -24,57 +55,56 @@ posnext.PointOfSale.Controller = class {
 					.then(pos_profile => {
 						if (pos_profile.custom_stock_update) {
 							frm.set_value('update_stock', 0);
-							// frm.save();
 						}
 					});
 			}
 		});
 	}
-	
 
 	fetch_opening_entry(value) {
-		return frappe.call("posnext.posnext.page.posnext.point_of_sale.check_opening_entry", { "user": frappe.session.user, "value": value });
+		return frappe.call("posnext.posnext.page.posnext.point_of_sale.check_opening_entry", { 
+			"user": frappe.session.user, 
+			"value": value 
+		});
 	}
 
-check_opening_entry(value = "") {
-    if (frappe.user_roles.includes("Sales Person")) {
-        this.find_available_opening_entry();
-    } else {
-        this.fetch_opening_entry(value).then((r) => {
-            if (r.message.length) {
-                // assuming only one opening voucher is available for the current user
-                this.prepare_app_defaults(r.message[0]);
-            } else {
-                this.create_opening_voucher();
-            }
-        });
-    }
-}
+	async check_opening_entry(value = "") {
+		if (frappe.user_roles.includes("Sales Person")) {
+			return this.find_available_opening_entry();
+		} else {
+			const r = await this.fetch_opening_entry(value);
+			if (r.message.length) {
+				return this.prepare_app_defaults(r.message[0]);
+			} else {
+				return this.create_opening_voucher();
+			}
+		}
+	}
 
-find_available_opening_entry() {
-    const me = this;
-    
-    frappe.call({
-        method: "posnext.posnext.page.posnext.point_of_sale.get_available_opening_entry",
-        callback: (r) => {
-            if (r.message && r.message.length > 0) {
-                
-                me.prepare_app_defaults(r.message[0]);
-                 frappe.show_alert({
-                    message: __("Using existing POS Opening Entry: {0}", [r.message[0].name]),
-                    indicator: 'blue'
-                });
-            } else {
-                
-                frappe.msgprint({
-                    title: __('No POS Opening Entry Available'),
-                    message: __('No POS Opening Entry is currently available. Please contact your manager to create one.'),
-                    indicator: 'red'
-                });
-            }
-        }
-    });
-}
+	find_available_opening_entry() {
+		return new Promise((resolve, reject) => {
+			frappe.call({
+				method: "posnext.posnext.page.posnext.point_of_sale.get_available_opening_entry",
+				callback: (r) => {
+					if (r.message && r.message.length > 0) {
+						this.prepare_app_defaults(r.message[0]).then(resolve).catch(reject);
+						frappe.show_alert({
+							message: __("Using existing POS Opening Entry: {0}", [r.message[0].name]),
+							indicator: 'blue'
+						});
+					} else {
+						frappe.msgprint({
+							title: __('No POS Opening Entry Available'),
+							message: __('No POS Opening Entry is currently available. Please contact your manager to create one.'),
+							indicator: 'red'
+						});
+						reject(new Error('No POS Opening Entry Available'));
+					}
+				},
+				error: reject
+			});
+		});
+	}
 
 	create_opening_voucher() {
 		const me = this;
@@ -99,24 +129,31 @@ find_available_opening_entry() {
 				}
 			}
 		];
-		const fetch_pos_payment_methods = () => {
+		
+		const fetch_pos_payment_methods = async () => {
 			const pos_profile = dialog.fields_dict.pos_profile.get_value();
 			if (!pos_profile) return;
-			frappe.db.get_doc("POS Profile", pos_profile).then(({ payments }) => {
+			
+			try {
+				const doc = await frappe.db.get_doc("POS Profile", pos_profile);
 				dialog.fields_dict.balance_details.df.data = [];
-				payments.forEach(pay => {
+				doc.payments.forEach(pay => {
 					const { mode_of_payment } = pay;
 					dialog.fields_dict.balance_details.df.data.push({ mode_of_payment, opening_amount: '0' });
 				});
 				dialog.fields_dict.balance_details.grid.refresh();
-			});
+			} catch (error) {
+				console.error('Error fetching payment methods:', error);
+			}
 		}
+		
 		const dialog = new frappe.ui.Dialog({
 			title: __('Create POS Opening Entry'),
 			static: true,
 			fields: [
 				{
-					fieldtype: 'Link', label: __('Company'), default: frappe.defaults.get_default('company'),
+					fieldtype: 'Link', label: __('Company'), 
+					default: frappe.defaults.get_default('company'),
 					options: 'Company', fieldname: 'company', reqd: 1
 				},
 				{
@@ -145,17 +182,19 @@ find_available_opening_entry() {
 					return frappe.utils.play_sound("error");
 				}
 
-				// filter balance details for empty rows
 				balance_details = balance_details.filter(d => d.mode_of_payment);
 
 				const method = "posnext.posnext.page.posnext.point_of_sale.create_opening_voucher";
 				const res = await frappe.call({ method, args: { pos_profile, company, balance_details }, freeze:true });
-				!res.exc && me.prepare_app_defaults(res.message);
+				if (!res.exc) {
+					await me.prepare_app_defaults(res.message);
+				}
 				dialog.hide();
 			},
 			primary_action_label: __('Submit')
 		});
 		dialog.show();
+		
 		const pos_profile_query = () => {
 			return {
 				query: 'erpnext.accounts.doctype.pos_profile.pos_profile.pos_profile_query',
@@ -164,54 +203,67 @@ find_available_opening_entry() {
 		};
 	}
 
-async prepare_app_defaults(data) {
-    this.pos_opening = data.name;
-    this.company = data.company;
-    this.pos_profile = data.pos_profile;
-    this.pos_opening_time = data.period_start_date;
-    this.item_stock_map = {};
-    this.settings = {};
-    window.current_pos_profile = this.pos_profile;
+	async prepare_app_defaults(data) {
+		// Set basic properties immediately
+		this.pos_opening = data.name;
+		this.company = data.company;
+		this.pos_profile = data.pos_profile;
+		this.pos_opening_time = data.period_start_date;
+		this.item_stock_map = {};
+		this.settings = {};
+		window.current_pos_profile = this.pos_profile;
 
-    // Fetch POS Profile data directly to ensure warehouse is set
-    const pos_profile_data = await frappe.db.get_doc('POS Profile', this.pos_profile);
-    if (!pos_profile_data.warehouse) {
-        frappe.throw(__('No warehouse specified in POS Profile {0}. Please set a group warehouse.', [this.pos_profile.bold()]));
-    }
-    // Ensure the warehouse is a group warehouse
-    const warehouse_info = await frappe.db.get_value('Warehouse', pos_profile_data.warehouse, 'is_group');
-    if (!warehouse_info.message.is_group) {
-        frappe.throw(__('The warehouse in POS Profile {0} must be a group warehouse.', [this.pos_profile.bold()]));
-    }
+		try {
+			// Batch all the database calls to reduce round trips
+			const [pos_profile_data, warehouse_info, stock_settings, pos_profile_response] = await Promise.all([
+				frappe.db.get_doc('POS Profile', this.pos_profile),
+				this.validateWarehouse(),
+				frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock'),
+				frappe.call({
+					method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
+					args: { "pos_profile": this.pos_profile }
+				})
+			]);
 
-    this.settings = {
-        ...pos_profile_data,
-        warehouse: pos_profile_data.warehouse, // Explicitly set warehouse
-        customer_groups: pos_profile_data.customer_groups.map(group => group.name)
-    };
-    console.log('Settings initialized in prepare_app_defaults:', this.settings);
+			// Process the results
+			this.settings = {
+				...pos_profile_data,
+				warehouse: pos_profile_data.warehouse,
+				customer_groups: pos_profile_data.customer_groups.map(group => group.name)
+			};
 
-    frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock').then(({ message }) => {
-        this.allow_negative_stock = flt(message.allow_negative_stock) || false;
-    });
+			this.allow_negative_stock = flt(stock_settings.message.allow_negative_stock) || false;
 
-    frappe.call({
-        method: "posnext.posnext.page.posnext.point_of_sale.get_pos_profile_data",
-        args: { "pos_profile": this.pos_profile },
-        callback: (res) => {
-            const profile = res.message || {};
-            console.log('get_pos_profile_data response:', profile);
-            if (!profile.warehouse) {
-                console.error('get_pos_profile_data did not return warehouse for POS Profile:', this.pos_profile);
-            }
-            Object.assign(this.settings, profile);
-            this.settings.warehouse = profile.warehouse || pos_profile_data.warehouse; // Fallback
-            this.settings.customer_groups = (profile.customer_groups || []).map(group => group.name || group);
-            console.log('Updated settings in prepare_app_defaults:', this.settings);
-            this.make_app();
-        }
-    });
-}
+			const profile = pos_profile_response.message || {};
+			Object.assign(this.settings, profile);
+			this.settings.warehouse = profile.warehouse || pos_profile_data.warehouse;
+			this.settings.customer_groups = (profile.customer_groups || []).map(group => group.name || group);
+
+			console.log('Settings initialized:', this.settings);
+
+			// Initialize the app without blocking
+			await this.make_app();
+
+		} catch (error) {
+			console.error('Error in prepare_app_defaults:', error);
+			frappe.throw(__('Failed to initialize POS: {0}', [error.message]));
+		}
+	}
+
+	async validateWarehouse() {
+		const pos_profile_data = await frappe.db.get_doc('POS Profile', this.pos_profile);
+		if (!pos_profile_data.warehouse) {
+			frappe.throw(__('No warehouse specified in POS Profile {0}. Please set a group warehouse.', [this.pos_profile.bold()]));
+		}
+		
+		const warehouse_info = await frappe.db.get_value('Warehouse', pos_profile_data.warehouse, 'is_group');
+		if (!warehouse_info.message.is_group) {
+			frappe.throw(__('The warehouse in POS Profile {0} must be a group warehouse.', [this.pos_profile.bold()]));
+		}
+		
+		return warehouse_info;
+	}
+
 	set_opening_entry_status() {
 		this.page.set_title_sub(
 			`<span class="indicator orange">
@@ -221,50 +273,50 @@ async prepare_app_defaults(data) {
 			</span>`);
 	}
 
+	async make_app() {
+		try {
+			// Remove loading indicator
+			this.wrapper.find('.pos-loading-container').remove();
+			
+			// Initialize form first
+			await this.make_sales_invoice_frm();
+			
+			// Set profile data
+			await this.set_pos_profile_data();
+			
+			// Prepare DOM structure
+			this.prepare_dom();
+			
+			// Initialize components in batches to prevent blocking
+			await this.initialize_components_async();
+			
+			// Setup menu and create new invoice
+			this.prepare_menu();
+			await this.make_new_invoice();
+			
+		} catch (error) {
+			console.error('make_app failed:', error);
+			frappe.show_alert({
+				message: __('Error initializing POS: {0}', [error.message]),
+				indicator: 'red'
+			});
+		}
+	}
 
-make_app() {
-    return frappe.run_serially([
-        () => {
-            try {
-                return this.make_sales_invoice_frm();
-            } catch (error) {
-                console.error('Error in make_sales_invoice_frm:', error);
-                frappe.throw(__('Failed to create Sales Invoice form: {0}', [error.message]));
-            }
-        },
-        () => {
-            try {
-                return this.set_pos_profile_data();
-            } catch (error) {
-                console.error('Error in set_pos_profile_data:', error);
-                frappe.throw(__('Failed to set POS Profile data: {0}', [error.message]));
-            }
-        },
-        () => {
-            try {
-                console.log('make_app: frm.doc after set_pos_profile_data:', this.frm?.doc);
-                this.prepare_dom();
-                this.prepare_components();
-                this.prepare_menu();
-                this.make_new_invoice();
-            } catch (error) {
-                console.error('Error in make_app DOM/components:', error);
-                frappe.throw(__('Failed to initialize POS UI: {0}', [error.message]));
-            }
-        }
-    ]).catch(error => {
-        console.error('make_app failed:', error);
-        frappe.show_alert({
-            message: __('Error initializing POS: {0}', [error.message]),
-            indicator: 'red'
-        });
-    });
-}
+	async initialize_components_async() {
+		// Initialize critical components first
+		await this.init_item_selector_async();
+		await this.init_item_cart_async();
+		
+		// Initialize secondary components with small delays
+		setTimeout(() => this.init_item_details(), 50);
+		setTimeout(() => this.init_payments(), 100);
+		setTimeout(() => this.init_recent_order_list(), 150);
+		setTimeout(() => this.init_order_summary(), 200);
+	}
+
 	prepare_dom() {
-		this.wrapper.append(
-			`<div class="point-of-sale-app"></div>`
-		);
-
+		this.wrapper.append(`<div class="point-of-sale-app"></div>`);
 		this.$components_wrapper = this.wrapper.find('.point-of-sale-app');
 	}
 
@@ -326,12 +378,7 @@ make_app() {
 				() => frappe.dom.freeze(),
 				() => this.make_new_invoice(false),
 				() => frappe.dom.unfreeze()
-
-
 			]);
-
-
-
 		});
 	}
 
@@ -349,9 +396,37 @@ make_app() {
 		frappe.set_route('Form', 'POS Closing Entry', voucher.name);
 	}
 
+	// Make component initialization async where possible
+	async init_item_selector_async() {
+		return new Promise(resolve => {
+			if(this.frm){
+				this.frm.doc.set_warehouse = this.settings.warehouse;
+			}
+			
+			this.item_selector = new posnext.PointOfSale.ItemSelector({
+				wrapper: this.$components_wrapper,
+				pos_profile: this.pos_profile,
+				settings: this.settings,
+				reload_status: this.reload_status,
+				currency: this.settings.currency,
+				events: {
+					check_opening_entry: () => this.check_opening_entry(),
+					item_selected: args => this.on_cart_update(args),
+					init_item_cart: () => this.init_item_cart(),
+					init_item_details: () => this.init_item_details(),
+					change_items: (args) => this.change_items(args),
+					get_frm: () => this.frm || {}
+				}
+			});
+			
+			// Resolve immediately, let the component load in background
+			resolve();
+		});
+	}
+
 	init_item_selector() {
 		if(this.frm){
-		this.frm.doc.set_warehouse = this.settings.warehouse
+			this.frm.doc.set_warehouse = this.settings.warehouse;
 		}
 		this.item_selector = new posnext.PointOfSale.ItemSelector({
 			wrapper: this.$components_wrapper,
@@ -369,10 +444,59 @@ make_app() {
 			}
 		})
 	}
+
 	change_items(items){
-		var me = this
 		this.frm = items;
-		this.cart.load_invoice()
+		this.cart.load_invoice();
+	}
+
+	async init_item_cart_async() {
+		return new Promise(resolve => {
+			this.cart = new posnext.PointOfSale.ItemCart({
+				wrapper: this.$components_wrapper,
+				settings: this.settings,
+				events: {
+					get_frm: () => this.frm,
+					remove_item_from_cart: (item) => {
+						this.item_details.current_item = item;
+						this.item_details.name = item.name;
+						this.item_details.doctype = item.doctype;
+					},
+					form_updated: (item, field, value) => {
+						this.item_details.current_item = item;
+						const item_row = frappe.model.get_doc(item.doctype, item.name);
+						if(field === 'qty' && this.frm.doc.is_return && value >= 0){
+							frappe.throw("Qty must be negative for return document");
+						}
+						if (item_row && item_row[field] != value) {
+							const args = { field, value, item: this.item_details.current_item };
+							return this.on_cart_update(args);
+						}
+						return Promise.resolve();
+					},
+					cart_item_clicked: (item) => {
+						const item_row = this.get_item_from_frm(item);
+						if(selected_item && selected_item['name'] == item['name']){
+							selected_item = null;
+						} else {
+							selected_item = item_row;
+						}
+						this.item_details.toggle_item_details_section(item_row);
+					},
+					numpad_event: (value, action) => this.update_item_field(value, action),
+					checkout: () => this.save_and_checkout(),
+					edit_cart: () => this.payment.edit_cart(),
+					save_draft_invoice: () => this.save_draft_invoice(),
+					toggle_recent_order: () => this.toggle_recent_order(),
+					customer_details_updated: (details) => {
+						this.customer_details = details;
+						this.payment.render_loyalty_points_payment_mode();
+					}
+				}
+			});
+			
+			resolve();
+		});
 	}
 
 	init_item_cart() {
@@ -432,70 +556,70 @@ make_app() {
 		})
 	}
 
-init_item_details() {
-    if (!this.settings) {
-        frappe.throw(__('Settings not initialized. Please ensure POS Profile data is loaded.'));
-    }
-    this.item_details = new posnext.PointOfSale.ItemDetails({
-        wrapper: this.$components_wrapper,
-        settings: this.settings, // Explicitly pass settings
-        events: {
-            get_frm: () => this.frm,
-            toggle_item_selector: (minimize) => {
-                this.item_selector.resize_selector(minimize);
-                this.cart.toggle_numpad(minimize);
-            },
-            form_updated: (item, field, value) => {
-                const item_row = frappe.model.get_doc(item.doctype, item.name);
-                if (field === 'qty' && this.frm.doc.is_return && value >= 0) {
-                    frappe.throw("Qty must be negative for return document");
-                }
-                if (item_row && item_row[field] != value) {
-                    const args = { field, value, item: this.item_details.current_item };
-                    return this.on_cart_update(args);
-                }
-                return Promise.resolve();
-            },
-            highlight_cart_item: (item) => {
-                const cart_item = this.cart.get_cart_item(item);
-                this.cart.toggle_item_highlight(cart_item);
-            },
-            item_field_focused: (fieldname) => {
-                this.cart.toggle_numpad_field_edit(fieldname);
-            },
-            set_value_in_current_cart_item: (selector, value) => {
-                this.cart.update_selector_value_in_cart_item(selector, value, this.item_details.current_item);
-            },
-            clone_new_batch_item_in_frm: (batch_serial_map, item) => {
-                Object.keys(batch_serial_map).forEach(batch => {
-                    const item_to_clone = this.frm.doc.items.find(i => i.name == item.name);
-                    const new_row = this.frm.add_child("items", { ...item_to_clone });
-                    new_row.batch_no = batch;
-                    new_row.serial_no = batch_serial_map[batch].join(`\n`);
-                    new_row.qty = batch_serial_map[batch].length;
-                    this.frm.doc.items.forEach(row => {
-                        if (item.item_code === row.item_code) {
-                            this.update_cart_html(row);
-                        }
-                    });
-                });
-            },
-            remove_item_from_cart: () => this.remove_item_from_cart(),
-            get_item_stock_map: () => this.item_stock_map,
-            close_item_details: () => {
-                selected_item = null;
-                this.item_details.toggle_item_details_section(null);
-                this.cart.prev_action = null;
-                this.cart.toggle_item_highlight();
-            },
-            get_available_stock: (item_code, warehouse) => this.get_available_stock(item_code, warehouse)
-        }
-    });
-    console.log('ItemDetails initialized with settings:', this.settings); // Debug log
-    if (selected_item) {
-        this.item_details.toggle_item_details_section(selected_item);
-    }
-}
+	init_item_details() {
+		if (!this.settings) {
+			frappe.throw(__('Settings not initialized. Please ensure POS Profile data is loaded.'));
+		}
+		this.item_details = new posnext.PointOfSale.ItemDetails({
+			wrapper: this.$components_wrapper,
+			settings: this.settings, // Explicitly pass settings
+			events: {
+				get_frm: () => this.frm,
+				toggle_item_selector: (minimize) => {
+					this.item_selector.resize_selector(minimize);
+					this.cart.toggle_numpad(minimize);
+				},
+				form_updated: (item, field, value) => {
+					const item_row = frappe.model.get_doc(item.doctype, item.name);
+					if (field === 'qty' && this.frm.doc.is_return && value >= 0) {
+						frappe.throw("Qty must be negative for return document");
+					}
+					if (item_row && item_row[field] != value) {
+						const args = { field, value, item: this.item_details.current_item };
+						return this.on_cart_update(args);
+					}
+					return Promise.resolve();
+				},
+				highlight_cart_item: (item) => {
+					const cart_item = this.cart.get_cart_item(item);
+					this.cart.toggle_item_highlight(cart_item);
+				},
+				item_field_focused: (fieldname) => {
+					this.cart.toggle_numpad_field_edit(fieldname);
+				},
+				set_value_in_current_cart_item: (selector, value) => {
+					this.cart.update_selector_value_in_cart_item(selector, value, this.item_details.current_item);
+				},
+				clone_new_batch_item_in_frm: (batch_serial_map, item) => {
+					Object.keys(batch_serial_map).forEach(batch => {
+						const item_to_clone = this.frm.doc.items.find(i => i.name == item.name);
+						const new_row = this.frm.add_child("items", { ...item_to_clone });
+						new_row.batch_no = batch;
+						new_row.serial_no = batch_serial_map[batch].join(`\n`);
+						new_row.qty = batch_serial_map[batch].length;
+						this.frm.doc.items.forEach(row => {
+							if (item.item_code === row.item_code) {
+								this.update_cart_html(row);
+							}
+						});
+					});
+				},
+				remove_item_from_cart: () => this.remove_item_from_cart(),
+				get_item_stock_map: () => this.item_stock_map,
+				close_item_details: () => {
+					selected_item = null;
+					this.item_details.toggle_item_details_section(null);
+					this.cart.prev_action = null;
+					this.cart.toggle_item_highlight();
+				},
+				get_available_stock: (item_code, warehouse) => this.get_available_stock(item_code, warehouse)
+			}
+		});
+		console.log('ItemDetails initialized with settings:', this.settings); // Debug log
+		if (selected_item) {
+			this.item_details.toggle_item_details_section(selected_item);
+		}
+	}
 
 	init_payments() {
 		this.payment = new posnext.PointOfSale.Payment({
@@ -611,59 +735,54 @@ init_item_details() {
 		!show ? (this.item_details.toggle_component(false) || this.payment.toggle_component(false)) : '';
 	}
 
-	make_new_invoice(from_held=false) {
-		if(from_held){
-			return frappe.run_serially([
-				() => frappe.dom.freeze(),
-				() => this.make_sales_invoice_frm(),
-				() => this.set_pos_profile_data(),
-				() => this.set_pos_profile_status(),
-				() => this.cart.load_invoice(),
-				() => frappe.dom.unfreeze(),
-				() => this.toggle_recent_order(),
-			]);
-		} else {
-			return frappe.run_serially([
-				() => frappe.dom.freeze(),
-				() => this.make_sales_invoice_frm(),
-				() => this.set_pos_profile_data(),
-				() => this.set_pos_profile_status(),
-				() => this.cart.load_invoice(),
-				() => frappe.dom.unfreeze(),
-			]);
+	async make_new_invoice(from_held = false) {
+		const operations = [
+			() => this.make_sales_invoice_frm(),
+			() => this.set_pos_profile_data(),
+			() => this.set_pos_profile_status(),
+			() => this.cart.load_invoice()
+		];
+
+		if (from_held) {
+			operations.push(() => this.toggle_recent_order());
 		}
 
+		// Execute without blocking UI
+		for (const operation of operations) {
+			await operation();
+		}
 	}
 
- make_sales_invoice_frm() {
-    const doctype = 'Sales Invoice';
-    return new Promise(resolve => {
-        try {
-            if (this.frm) {
-                this.frm = this.get_new_frm(this.frm);
-                this.frm.doc.items = [];
-                this.frm.doc.is_pos = 1;
-                console.log('make_sales_invoice_frm: Reused existing frm:', this.frm.doc);
-                resolve();
-            } else {
-                frappe.model.with_doctype(doctype, () => {
-                    this.frm = this.get_new_frm();
-                    if (!this.frm) {
-                        console.error('make_sales_invoice_frm: get_new_frm returned undefined');
-                        frappe.throw(__('Failed to create new Sales Invoice form'));
-                    }
-                    this.frm.doc.items = [];
-                    this.frm.doc.is_pos = 1;
-                    console.log('make_sales_invoice_frm: Created new frm:', this.frm.doc);
-                    resolve();
-                });
-            }
-        } catch (error) {
-            console.error('Error in make_sales_invoice_frm:', error);
-            frappe.throw(__('Failed to create Sales Invoice form: {0}', [error.message]));
-        }
-    });
-}
+	make_sales_invoice_frm() {
+		const doctype = 'Sales Invoice';
+		return new Promise(resolve => {
+			try {
+				if (this.frm) {
+					this.frm = this.get_new_frm(this.frm);
+					this.frm.doc.items = [];
+					this.frm.doc.is_pos = 1;
+					console.log('make_sales_invoice_frm: Reused existing frm:', this.frm.doc);
+					resolve();
+				} else {
+					frappe.model.with_doctype(doctype, () => {
+						this.frm = this.get_new_frm();
+						if (!this.frm) {
+							console.error('make_sales_invoice_frm: get_new_frm returned undefined');
+							frappe.throw(__('Failed to create new Sales Invoice form'));
+						}
+						this.frm.doc.items = [];
+						this.frm.doc.is_pos = 1;
+						console.log('make_sales_invoice_frm: Created new frm:', this.frm.doc);
+						resolve();
+					});
+				}
+			} catch (error) {
+				console.error('Error in make_sales_invoice_frm:', error);
+				frappe.throw(__('Failed to create Sales Invoice form: {0}', [error.message]));
+			}
+		});
+	}
+
 	get_new_frm(_frm) {
 		const doctype = 'Sales Invoice';
 		const page = $('<div>');
@@ -695,144 +814,142 @@ init_item_details() {
 		});
 	}
 
-set_pos_profile_data() {
-    if (!this.pos_profile) {
-        console.error('set_pos_profile_data: POS Profile not set in Controller');
-        frappe.throw(__('POS Profile not set. Please configure a POS Profile.'));
-    }
-    if (!this.frm) {
-        console.warn('set_pos_profile_data: frm is undefined, attempting to initialize');
-        return this.make_sales_invoice_frm().then(() => {
-            if (!this.frm) {
-                console.error('set_pos_profile_data: Failed to initialize frm');
-                frappe.throw(__('Failed to initialize Sales Invoice form'));
-            }
-            return this.set_pos_profile_data(); // Retry after initializing frm
-        });
-    }
-    if (this.company && !this.frm.doc.company) {
-        this.frm.doc.company = this.company;
-        console.log('set_pos_profile_data: Set company:', this.company);
-    }
-    if ((this.pos_profile && !this.frm.doc.pos_profile) || (this.frm.doc.is_return && this.pos_profile != this.frm.doc.pos_profile)) {
-        this.frm.doc.pos_profile = this.pos_profile;
-        console.log('set_pos_profile_data: Set pos_profile:', this.pos_profile);
-    }
-    if (!this.frm.doc.company) {
-        console.error('set_pos_profile_data: Company not set in Sales Invoice');
-        return;
-    }
-    console.log('set_pos_profile_data: frm.doc before set_pos_data:', this.frm.doc);
-    return this.frm.trigger("set_pos_data");
-}
+	async set_pos_profile_data() {
+		if (!this.pos_profile) {
+			console.error('set_pos_profile_data: POS Profile not set in Controller');
+			frappe.throw(__('POS Profile not set. Please configure a POS Profile.'));
+		}
+		if (!this.frm) {
+			console.warn('set_pos_profile_data: frm is undefined, attempting to initialize');
+			await this.make_sales_invoice_frm();
+			if (!this.frm) {
+				console.error('set_pos_profile_data: Failed to initialize frm');
+				frappe.throw(__('Failed to initialize Sales Invoice form'));
+			}
+		}
+		if (this.company && !this.frm.doc.company) {
+			this.frm.doc.company = this.company;
+			console.log('set_pos_profile_data: Set company:', this.company);
+		}
+		if ((this.pos_profile && !this.frm.doc.pos_profile) || (this.frm.doc.is_return && this.pos_profile != this.frm.doc.pos_profile)) {
+			this.frm.doc.pos_profile = this.pos_profile;
+			console.log('set_pos_profile_data: Set pos_profile:', this.pos_profile);
+		}
+		if (!this.frm.doc.company) {
+			console.error('set_pos_profile_data: Company not set in Sales Invoice');
+			return;
+		}
+		console.log('set_pos_profile_data: frm.doc before set_pos_data:', this.frm.doc);
+		return this.frm.trigger("set_pos_data");
+	}
 
 	set_pos_profile_status() {
 		this.page.set_indicator(this.pos_profile, "blue");
 	}
 
-async on_cart_update(args) {
-    console.log("Updating Cart");
-    let item_row = undefined;
-    try {
-        let { field, value, item } = args;
-        item_row = this.get_item_from_frm(item);
-        const item_row_exists = !$.isEmptyObject(item_row);
+	async on_cart_update(args) {
+		console.log("Updating Cart");
+		let item_row = undefined;
+		try {
+			let { field, value, item } = args;
+			item_row = this.get_item_from_frm(item);
+			const item_row_exists = !$.isEmptyObject(item_row);
 
-        const from_selector = field === 'qty' && value === "+1";
-        if (from_selector) value = flt(item_row.stock_qty) + 1;
+			const from_selector = field === 'qty' && value === "+1";
+			if (from_selector) value = flt(item_row.stock_qty) + 1;
 
-        if (item_row_exists) {
-            if (field === 'qty') value = flt(value);
-            if (['qty', 'conversion_factor'].includes(field) && value > 0 && !this.allow_negative_stock) {
-                const qty_needed = field === 'qty' ? value * item_row.conversion_factor : item_row.qty * value;
-            }
-            if (this.is_current_item_being_edited(item_row) || from_selector) {
-                await frappe.model.set_value(item_row.doctype, item_row.name, field, value);
-                this.update_cart_html(item_row);
-            }
-        } else {
-            if (!this.frm.doc.customer && !this.settings.custom_mobile_number_based_customer) {
-                return this.raise_customer_selection_alert();
-            }
+			if (item_row_exists) {
+				if (field === 'qty') value = flt(value);
+				if (['qty', 'conversion_factor'].includes(field) && value > 0 && !this.allow_negative_stock) {
+					const qty_needed = field === 'qty' ? value * item_row.conversion_factor : item_row.qty * value;
+				}
+				if (this.is_current_item_being_edited(item_row) || from_selector) {
+					await frappe.model.set_value(item_row.doctype, item_row.name, field, value);
+					this.update_cart_html(item_row);
+				}
+			} else {
+				if (!this.frm.doc.customer && !this.settings.custom_mobile_number_based_customer) {
+					return this.raise_customer_selection_alert();
+				}
 
-            frappe.flags.ignore_company_party_validation = true;
-            let { item_code, batch_no, serial_no, rate, uom, valuation_rate, custom_item_uoms, custom_logical_rack } = item;
+				frappe.flags.ignore_company_party_validation = true;
+				let { item_code, batch_no, serial_no, rate, uom, valuation_rate, custom_item_uoms, custom_logical_rack } = item;
 
-            if (!rate || flt(rate) === 0) {
-                const res = await frappe.call({
-                    method: 'erpnext.stock.get_item_details.get_item_price',
-                    args: { item_code, price_list: this.settings.selling_price_list }
-                });
-                rate = flt(res.message.price_list_rate) || 0;
-            }
+				if (!rate || flt(rate) === 0) {
+					const res = await frappe.call({
+						method: 'erpnext.stock.get_item_details.get_item_price',
+						args: { item_code, price_list: this.settings.selling_price_list }
+					});
+					rate = flt(res.message.price_list_rate) || 0;
+				}
 
-            // Fetch the warehouse with the highest stock
-            let default_warehouse = '';
-            const stock_res = await frappe.call({
-                method: 'posnext.posnext.page.posnext.point_of_sale.get_warehouse_with_highest_stock',
-                args: {
-                    company: this.frm.doc.company,
-                    parent_warehouse: this.settings.warehouse || '',
-                    item_code: item_code
-                }
-            });
-            if (stock_res.message) {
-                default_warehouse = stock_res.message.warehouse;
-                if (!this.item_stock_map[item_code]) {
-                    this.item_stock_map[item_code] = {};
-                }
-                this.item_stock_map[item_code][default_warehouse] = [stock_res.message.actual_qty, true];
-            } else {
-                frappe.show_alert({
-                    message: __('No stock available for Item Code: {0} under any warehouse.', [item_code.bold()]),
-                    indicator: 'red'
-                });
-                frappe.utils.play_sound("error");
-                return; // Prevent adding item if no stock
-            }
+				// Fetch the warehouse with the highest stock
+				let default_warehouse = '';
+				const stock_res = await frappe.call({
+					method: 'posnext.posnext.page.posnext.point_of_sale.get_warehouse_with_highest_stock',
+					args: {
+						company: this.frm.doc.company,
+						parent_warehouse: this.settings.warehouse || '',
+						item_code: item_code
+					}
+				});
+				if (stock_res.message) {
+					default_warehouse = stock_res.message.warehouse;
+					if (!this.item_stock_map[item_code]) {
+						this.item_stock_map[item_code] = {};
+					}
+					this.item_stock_map[item_code][default_warehouse] = [stock_res.message.actual_qty, true];
+				} else {
+					frappe.show_alert({
+						message: __('No stock available for Item Code: {0} under any warehouse.', [item_code.bold()]),
+						indicator: 'red'
+					});
+					frappe.utils.play_sound("error");
+					return; // Prevent adding item if no stock
+				}
 
-            uom = uom || item.stock_uom || 'Nos';
-            let qty = (field === 'qty' && value) ? flt(value) : 1;
-            if (field === 'serial_no') qty = value.split(`\n`).length || 0;
+				uom = uom || item.stock_uom || 'Nos';
+				let qty = (field === 'qty' && value) ? flt(value) : 1;
+				if (field === 'serial_no') qty = value.split(`\n`).length || 0;
 
-            if (serial_no) {
-                await this.check_serial_no_availablilty(item_code, default_warehouse, serial_no);
-            }
+				if (serial_no) {
+					await this.check_serial_no_availablilty(item_code, default_warehouse, serial_no);
+				}
 
-            const new_item = {
-                item_code,
-                batch_no,
-                serial_no,
-                rate,
-                uom,
-                qty,
-                amount: flt(rate) * flt(qty),
-                custom_item_uoms,
-                custom_logical_rack,
-                warehouse: default_warehouse
-            };
+				const new_item = {
+					item_code,
+					batch_no,
+					serial_no,
+					rate,
+					uom,
+					qty,
+					amount: flt(rate) * flt(qty),
+					custom_item_uoms,
+					custom_logical_rack,
+					warehouse: default_warehouse
+				};
 
-            item_row = this.frm.add_child('items', new_item);
-            console.log('New item added with warehouse:', new_item.warehouse); // Debug log
-            await this.trigger_new_item_events(item_row);
-            this.frm.refresh_field("items");
-            this.update_cart_html(item_row);
+				item_row = this.frm.add_child('items', new_item);
+				console.log('New item added with warehouse:', new_item.warehouse); // Debug log
+				await this.trigger_new_item_events(item_row);
+				this.frm.refresh_field("items");
+				this.update_cart_html(item_row);
 
-            if (this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
-            if (this.check_serial_batch_selection_needed(item_row) && !this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
-        }
-    } catch (error) {
-        console.log(error);
-    } finally {
-        let total_incoming_rate = 0;
-        this.frm.doc.items.forEach(item => {
-            total_incoming_rate += (flt(item.valuation_rate) * flt(item.qty));
-        });
-        this.item_selector.update_total_incoming_rate(total_incoming_rate);
-        return item_row;
-    }
-}
-    
+				if (this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
+				if (this.check_serial_batch_selection_needed(item_row) && !this.item_details.$component.is(':visible')) this.edit_item_details_of(item_row);
+			}
+		} catch (error) {
+			console.log(error);
+		} finally {
+			let total_incoming_rate = 0;
+			this.frm.doc.items.forEach(item => {
+				total_incoming_rate += (flt(item.valuation_rate) * flt(item.qty));
+			});
+			this.item_selector.update_total_incoming_rate(total_incoming_rate);
+			return item_row;
+		}
+	}
+
 	raise_customer_selection_alert() {
 		frappe.dom.unfreeze();
 		frappe.show_alert({
@@ -841,19 +958,20 @@ async on_cart_update(args) {
 		});
 		frappe.utils.play_sound("error");
 	}
+
 	async get_product_bundle(item_code) {
 		const response = await frappe.call({
 			method: "posnext.doc_events.item.get_product_bundle_with_items",
 			args: {
 				item_code: item_code
 			}
-			});
+		});
 		return response.message;
 	}
 
 	get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
 		let item_row = null;
-	
+
 		if (name) {
 			item_row = this.frm.doc.items.find(i => i.name == name);
 		} else {
@@ -865,7 +983,7 @@ async on_cart_update(args) {
 				const batch_no_check = this.settings.custom_allow_add_new_items_on_new_line
 					? (has_batch_no && cur_frm.doc.items[i].batch_no === batch_no)
 					: true;
-	
+
 				if (
 					cur_frm.doc.items[i].item_code === item_code &&
 					cur_frm.doc.items[i].uom === uom &&
@@ -880,7 +998,6 @@ async on_cart_update(args) {
 		}
 		return item_row || {};
 	}
-	
 
 	edit_item_details_of(item_row) {
 		this.item_details.toggle_item_details_section(item_row);
@@ -892,9 +1009,7 @@ async on_cart_update(args) {
 
 	update_cart_html(item_row, remove_item) {
 		this.cart.update_item_html(item_row, remove_item);
-
 		this.cart.update_totals_section(this.frm);
-
 	}
 
 	check_serial_batch_selection_needed(item_row) {
@@ -961,22 +1076,22 @@ async on_cart_update(args) {
 		}
 	}
 
-async get_available_stock(item_code, warehouse) {
-    const me = this;
-    if (!me.item_stock_map[item_code]) {
-        me.item_stock_map[item_code] = {};
-    }
-    return frappe.call({
-        method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
-        args: {
-            'item_code': item_code,
-            'warehouse': warehouse,
-        },
-        callback(res) {
-            me.item_stock_map[item_code][warehouse] = res.message || [0, false];
-        }
-    });
-}
+	async get_available_stock(item_code, warehouse) {
+		const me = this;
+		if (!me.item_stock_map[item_code]) {
+			me.item_stock_map[item_code] = {};
+		}
+		return frappe.call({
+			method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
+			args: {
+				'item_code': item_code,
+				'warehouse': warehouse,
+			},
+			callback(res) {
+				me.item_stock_map[item_code][warehouse] = res.message || [0, false];
+			}
+		});
+	}
 
 	update_item_field(value, field_or_action) {
 		if (field_or_action === 'checkout') {
@@ -1011,22 +1126,6 @@ async get_available_stock(item_code, warehouse) {
 	}
 
 	async save_and_checkout() {
-		if (this.frm.is_dirty()) {
-			const div = document.getElementById("customer-cart-container2");
-			div.style.gridColumn = "";
-			let save_error = false;
-			await this.frm.save(null, null, null, () => save_error = true);
-			// only move to payment section if save is successful
-			!save_error && this.payment.checkout();
-			// show checkout button on error
-			save_error && setTimeout(() => {
-				this.cart.toggle_checkout_btn(true);
-			}, 300); // wait for save to finish
-		} else {
-			this.payment.checkout();
-		}
-	}
-	async save_and_checkout() {
 		if (!this.frm.doc.items || this.frm.doc.items.length === 0) {
 			frappe.show_alert({
 				message: __('Please add items to cart before checkout.'),
@@ -1037,63 +1136,89 @@ async get_available_stock(item_code, warehouse) {
 		}
 		if (this.frm.is_dirty()) {
 			if(this.settings.custom_add_reference_details){
-			const dialog = new frappe.ui.Dialog({
-				title: __('Enter Reference Details'),
-				fields: [
-					{
-						fieldtype: 'Data',
-						label: __('Reference Number'),
-						fieldname: 'reference_no',
-					},
-					{
-						fieldtype: 'Data',
-						label: __('Reference Name'),
-						fieldname: 'reference_name',
-					}
-				],
-				primary_action_label: __('Proceed to Payment'),
-				primary_action: async (values) => {
-					this.frm.doc.custom_reference_no = values.reference_no;
-					this.frm.doc.custom_reference_name = values.reference_name;
+				const dialog = new frappe.ui.Dialog({
+					title: __('Enter Reference Details'),
+					fields: [
+						{
+							fieldtype: 'Data',
+							label: __('Reference Number'),
+							fieldname: 'reference_no',
+						},
+						{
+							fieldtype: 'Data',
+							label: __('Reference Name'),
+							fieldname: 'reference_name',
+						}
+					],
+					primary_action_label: __('Proceed to Payment'),
+					primary_action: async (values) => {
+						this.frm.doc.custom_reference_no = values.reference_no;
+						this.frm.doc.custom_reference_name = values.reference_name;
 
-					const div = document.getElementById("customer-cart-container2");
-					div.style.gridColumn = "";
-					
-					let save_error = false;
-					await this.frm.save(null, null, null, () => save_error = true);
-					
-					dialog.hide();
-					
-					if (!save_error) {
-						this.payment.checkout();
-					} else {
-						setTimeout(() => {
-							this.cart.toggle_checkout_btn(true);
-						}, 300); // wait for save to finish
+						const div = document.getElementById("customer-cart-container2");
+						div.style.gridColumn = "";
+						
+						let save_error = false;
+						await this.frm.save(null, null, null, () => save_error = true);
+						
+						dialog.hide();
+						
+						if (!save_error) {
+							this.payment.checkout();
+						} else {
+							setTimeout(() => {
+								this.cart.toggle_checkout_btn(true);
+							}, 300); // wait for save to finish
+						}
 					}
-				}
-			});
+				});
 
-			
-			dialog.show();
+				dialog.show();
 			}else{
-
-			const div = document.getElementById("customer-cart-container2");
-			div.style.gridColumn = "";
-			let save_error = false;
-			await this.frm.save(null, null, null, () => save_error = true);
-			// only move to payment section if save is successful
-			!save_error && this.payment.checkout();
-			// show checkout button on error
-			save_error && setTimeout(() => {
-				this.cart.toggle_checkout_btn(true);
-			}, 300); // wait for save to finish
+				const div = document.getElementById("customer-cart-container2");
+				div.style.gridColumn = "";
+				let save_error = false;
+				await this.frm.save(null, null, null, () => save_error = true);
+				// only move to payment section if save is successful
+				!save_error && this.payment.checkout();
+				// show checkout button on error
+				save_error && setTimeout(() => {
+					this.cart.toggle_checkout_btn(true);
+				}, 300); // wait for save to finish
 			}
-
-
-
 		} else {
 			this.payment.checkout();
 		}
 	}
-};
+
+	// Batch stock checks to reduce server calls
+	async batch_stock_check(items) {
+		const unique_items = [...new Set(items.map(item => item.item_code))];
+		const stock_promises = unique_items.map(item_code => 
+			this.get_available_stock(item_code, this.settings.warehouse)
+		);
+		
+		const results = await Promise.all(stock_promises);
+		
+		// Update stock map in batch
+		unique_items.forEach((item_code, index) => {
+			if (!this.item_stock_map[item_code]) {
+				this.item_stock_map[item_code] = {};
+			}
+			this.item_stock_map[item_code][this.settings.warehouse] = results[index].message;
+		});
+	}
+
+	// Add debouncing for frequent operations
+	debounce(func, wait) {
+		let timeout;
+		return function executedFunction(...args) {
+			const later = () => {
+				clearTimeout(timeout);
+				func(...args);
+			};
+			clearTimeout(timeout);
+			timeout = setTimeout(later, wait);
+		};
+	}
+}
