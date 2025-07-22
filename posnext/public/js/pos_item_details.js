@@ -8,6 +8,7 @@ posnext.PointOfSale.ItemDetails = class {
 		this.allow_discount_change = settings.allow_discount_change;
 		this.custom_edit_rate_and_uom = settings.custom_edit_rate_and_uom;
 		this.current_item = {};
+		this.use_discount_amount = 1; // Default to discount amount
 
 		this.init_component();
 	}
@@ -30,7 +31,7 @@ posnext.PointOfSale.ItemDetails = class {
 	init_child_components() {
 		this.$component.html(
 			`<div class="item-details-header">
-				<div class="label">${__('Item Detailss')}</div>
+				<div class="label">${__('Item Details')}</div>
 				<div class="close-btn">
 					<svg width="32" height="32" viewBox="0 0 14 14" fill="none">
 						<path d="M4.93764 4.93759L7.00003 6.99998M9.06243 9.06238L7.00003 6.99998M7.00003 6.99998L4.93764 9.06238L9.06243 4.93759" stroke="#8D99A6"/>
@@ -46,6 +47,7 @@ posnext.PointOfSale.ItemDetails = class {
 				<div class="item-image"></div>
 			</div>
 			<div class="discount-section"></div>
+			<div class="discount-applied-display"></div>
 			<div class="form-container"></div>
 			<div class="serial-batch-container"></div>`
 		)
@@ -56,6 +58,7 @@ posnext.PointOfSale.ItemDetails = class {
 		this.$item_image = this.$component.find('.item-image');
 		this.$form_container = this.$component.find('.form-container');
 		this.$dicount_section = this.$component.find('.discount-section');
+		this.$discount_applied_display = this.$component.find('.discount-applied-display');
 		this.$serial_batch_container = this.$component.find('.serial-batch-container');
 	}
 
@@ -93,6 +96,7 @@ posnext.PointOfSale.ItemDetails = class {
 			this.render_dom(item);
 			this.render_discount_dom(item);
 			this.render_form(item);
+			this.render_discount_applied_display(item);
 			this.events.highlight_cart_item(item);
 		} else {
 			this.current_item = {};
@@ -153,15 +157,47 @@ posnext.PointOfSale.ItemDetails = class {
 	}
 
 	render_discount_dom(item) {
-		if (item.discount_percentage) {
+		if (item.discount_percentage || item.discount_amount) {
+			let discount_text = '';
+			if (item.discount_percentage) {
+				discount_text = `${item.discount_percentage}% off`;
+			} else if (item.discount_amount) {
+				discount_text = `${format_currency(item.discount_amount, this.currency)} off`;
+			}
+			
 			this.$dicount_section.html(
 				`<div class="item-rate">${format_currency(item.price_list_rate, this.currency)}</div>
-				<div class="item-discount">${item.discount_percentage}% off</div>`
+				<div class="item-discount">${discount_text}</div>`
 			)
 			this.$item_price.html(format_currency(item.rate, this.currency));
 		} else {
 			this.$dicount_section.html(``)
 		}
+	}
+
+	render_discount_applied_display(item) {
+		const discount_amount = this.calculate_discount_amount(item);
+		
+		if (discount_amount > 0) {
+			this.$discount_applied_display.html(
+				`<div class="discount-applied-info" style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin: 8px 0;">
+					<div style="font-weight: 600; color: #28a745; font-size: 14px;">
+						${format_currency(discount_amount, this.currency)} off applied
+					</div>
+				</div>`
+			);
+		} else {
+			this.$discount_applied_display.html('');
+		}
+	}
+
+	calculate_discount_amount(item) {
+		if (item.discount_amount) {
+			return item.discount_amount;
+		} else if (item.discount_percentage) {
+			return (item.price_list_rate * item.discount_percentage / 100);
+		}
+		return 0;
 	}
 
 	render_form(item) {
@@ -174,17 +210,32 @@ posnext.PointOfSale.ItemDetails = class {
 			)
 
 			const field_meta = this.item_meta.fields.find(df => df.fieldname === fieldname);
-			fieldname === 'discount_percentage' ? (field_meta.label = __('Discount (%)')) : '';
+			
+			// Handle discount field labels
+			if (fieldname === 'discount_percentage') {
+				field_meta.label = this.use_discount_amount ? __('Discount Amount') : __('Discount (%)');
+			}
+			
 			const me = this;
 			var uoms = []
 			frappe.db.get_doc("Item",me.current_item.item_code).then(doc => {
 				uoms = doc.uoms.map(item => item.uom);
 			})
+			
 			this[`${fieldname}_control`] = frappe.ui.form.make_control({
 				df: {
 					...field_meta,
 					onchange: function() {
-						me.events.form_updated(me.current_item, fieldname, this.value);
+						if (fieldname === 'discount_percentage') {
+							// Handle discount change based on current mode
+							if (me.use_discount_amount) {
+								me.events.form_updated(me.current_item, 'discount_amount', this.value);
+							} else {
+								me.events.form_updated(me.current_item, 'discount_percentage', this.value);
+							}
+						} else {
+							me.events.form_updated(me.current_item, fieldname, this.value);
+						}
 					},
 					get_query:function () {
 						if(fieldname === 'uom'){
@@ -195,17 +246,68 @@ posnext.PointOfSale.ItemDetails = class {
 							}
 						}
 						return
-                    }
+					}
 				},
 				parent: this.$form_container.find(`.${fieldname}-control`),
 				render_input: true,
 			})
-			this[`${fieldname}_control`].set_value(item[fieldname]);
+			
+			// Set the appropriate value based on discount mode
+			if (fieldname === 'discount_percentage') {
+				const value = this.use_discount_amount ? (item.discount_amount || 0) : (item.discount_percentage || 0);
+				this[`${fieldname}_control`].set_value(value);
+			} else {
+				this[`${fieldname}_control`].set_value(item[fieldname]);
+			}
 		});
 
+		// Add discount toggle checkbox
+		this.add_discount_toggle_checkbox();
 		this.make_auto_serial_selection_btn(item);
-
 		this.bind_custom_control_change_event();
+	}
+
+	add_discount_toggle_checkbox() {
+		const discount_control_wrapper = this.$form_container.find('.discount_percentage-control');
+		if (discount_control_wrapper.length) {
+			// Add checkbox above discount field
+			discount_control_wrapper.prepend(`
+				<div class="discount-toggle-wrapper" style="margin-bottom: 8px;">
+					<label class="discount-toggle-label" style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+						<input type="checkbox" class="discount-amount-checkbox" ${this.use_discount_amount ? 'checked' : ''} style="margin-right: 6px;">
+						<span>${__('Use discount amount')}</span>
+					</label>
+				</div>
+			`);
+
+			// Bind checkbox change event
+			discount_control_wrapper.find('.discount-amount-checkbox').on('change', (e) => {
+				this.use_discount_amount = e.target.checked ? 1 : 0;
+				this.toggle_discount_mode();
+			});
+		}
+	}
+
+	toggle_discount_mode() {
+		const current_value = this.discount_percentage_control.get_value() || 0;
+		const item = this.current_item;
+		
+		// Update field label
+		const new_label = this.use_discount_amount ? __('Discount Amount') : __('Discount (%)');
+		this.discount_percentage_control.df.label = new_label;
+		this.discount_percentage_control.refresh();
+		
+		// Convert and set value
+		let new_value = 0;
+		if (this.use_discount_amount) {
+			// Converting from percentage to amount
+			new_value = current_value > 0 ? (item.price_list_rate * current_value / 100) : 0;
+		} else {
+			// Converting from amount to percentage  
+			new_value = current_value > 0 && item.price_list_rate > 0 ? (current_value / item.price_list_rate * 100) : 0;
+		}
+		
+		this.discount_percentage_control.set_value(new_value);
 	}
 
 	get_form_fields(item) {
@@ -235,6 +337,7 @@ posnext.PointOfSale.ItemDetails = class {
 						const doc = me.events.get_frm().doc;
 						me.$item_price.html(format_currency(item_row.rate, doc.currency));
 						me.render_discount_dom(item_row);
+						me.render_discount_applied_display(item_row);
 					});
 				}
 			};
@@ -321,6 +424,10 @@ posnext.PointOfSale.ItemDetails = class {
 			if (item_row_is_being_edited && field_control && field_control.get_value() !== value) {
 				field_control.set_value(value);
 				cur_pos.update_cart_html(item_row);
+				// Update discount display when discount values change
+				if (fieldname === 'discount_percentage' || fieldname === 'discount_amount') {
+					me.render_discount_applied_display(item_row);
+				}
 			}
 		});
 	}
