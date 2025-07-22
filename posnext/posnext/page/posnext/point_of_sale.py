@@ -667,10 +667,10 @@ def get_warehouses_with_stock(doctype, txt, searchfield, start, page_len, filter
         filters (dict): Filters containing company, parent_warehouse, and item_code.
         **kwargs: Additional keyword arguments (e.g., as_dict, reference_doctype).
     Returns:
-        list: List of warehouse names with stock for the item.
+        list: List of tuples containing warehouse data.
     """
     frappe.log_error(
-        title="get_warehouses_with_stock called (v2025-07-17-v9)",
+        title="get_warehouses_with_stock called (v2025-07-17-v10)",
         message=f"Arguments: doctype={doctype}, txt={txt}, searchfield={searchfield}, start={start}, page_len={page_len}, filters={filters}, kwargs={kwargs}"
     )
     
@@ -695,36 +695,38 @@ def get_warehouses_with_stock(doctype, txt, searchfield, start, page_len, filter
     if not is_group:
         frappe.throw(_("Parent warehouse {0} is not a group warehouse.").format(parent_warehouse))
     
-    lft, rgt = frappe.db.get_value("Warehouse", parent_warehouse, ["lft", "rgt"])  # Removed cache=True
-    child_warehouses = frappe.db.get_all(
-        "Warehouse",
-        fields=["name"],
-        filters={"lft": [">=", lft], "rgt": ["<=", rgt], "is_group": 0},
-        pluck="name"
-    )
-    frappe.log_error(
-        title="Child warehouses found",
-        message=f"Child warehouses: {child_warehouses}"
-    )
+    # Build the search condition for txt
+    search_condition = ""
+    search_params = []
+    if txt:
+        search_condition = f"AND w.name LIKE %s"
+        search_params.append(f"%{txt}%")
     
-    warehouses = frappe.db.sql("""
-        SELECT w.name
+    # Get warehouses with stock
+    warehouses = frappe.db.sql(f"""
+        SELECT DISTINCT w.name, w.warehouse_name
         FROM `tabWarehouse` w
         JOIN `tabBin` b ON w.name = b.warehouse
         WHERE w.company = %s
         AND w.parent_warehouse = %s
         AND w.is_group = 0
+        AND w.disabled = 0
         AND b.item_code = %s
         AND b.actual_qty > 0
-    """, (company, parent_warehouse, item_code), as_dict=True)
+        {search_condition}
+        ORDER BY w.name
+        LIMIT %s, %s
+    """, (company, parent_warehouse, item_code, *search_params, start, page_len))
     
-    warehouse_list = [w.name for w in warehouses]
     frappe.log_error(
-        title="Warehouses with stock",
-        message=f"Warehouses: {warehouse_list}"
+        title="Warehouses with stock (fixed format)",
+        message=f"Warehouses: {warehouses}"
     )
-    return warehouse_list
-	
+    
+    # Return as list of tuples - this is the key fix!
+    # Each tuple should contain (warehouse_name,) or (warehouse_name, description) 
+    # depending on what fields you want to display
+    return [(warehouse[0],) for warehouse in warehouses]
 @frappe.whitelist()
 def get_warehouse_with_highest_stock(company, parent_warehouse, item_code):
     warehouses = frappe.db.sql("""
