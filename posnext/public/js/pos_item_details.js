@@ -211,11 +211,13 @@ posnext.PointOfSale.ItemDetails = class {
 	render_discount_applied_display(item) {
 		const discount_amount = this.calculate_discount_amount(item);
 		
+		console.log('Rendering discount display:', { discount_amount, item }); // Debug log
+		
 		if (discount_amount > 0) {
 			this.$discount_applied_display.html(
-				`<div class="discount-applied-info" style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin: 8px 0;">
+				`<div class="discount-applied-info" style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin: 8px 0; border-left: 3px solid #28a745;">
 					<div style="font-weight: 600; color: #28a745; font-size: 14px;">
-						${format_currency(discount_amount, this.currency)} off applied
+						💰 ${format_currency(discount_amount, this.currency)} off applied
 					</div>
 				</div>`
 			);
@@ -262,9 +264,17 @@ posnext.PointOfSale.ItemDetails = class {
 						if (fieldname === 'discount_percentage') {
 							// Handle discount change based on current mode
 							if (me.use_discount_amount) {
-								me.events.form_updated(me.current_item, 'discount_amount', this.value);
+								me.events.form_updated(me.current_item, 'discount_amount', this.value).then(() => {
+									const updated_item = frappe.get_doc(me.doctype, me.name);
+									me.render_discount_applied_display(updated_item);
+									me.render_discount_dom(updated_item);
+								});
 							} else {
-								me.events.form_updated(me.current_item, 'discount_percentage', this.value);
+								me.events.form_updated(me.current_item, 'discount_percentage', this.value).then(() => {
+									const updated_item = frappe.get_doc(me.doctype, me.name);
+									me.render_discount_applied_display(updated_item);
+									me.render_discount_dom(updated_item);
+								});
 							}
 						} else {
 							me.events.form_updated(me.current_item, fieldname, this.value);
@@ -341,6 +351,9 @@ posnext.PointOfSale.ItemDetails = class {
 		}
 		
 		this.discount_percentage_control.set_value(new_value);
+		
+		// Update the discount display immediately after toggle
+		this.render_discount_applied_display(item);
 	}
 
 	get_form_fields(item) {
