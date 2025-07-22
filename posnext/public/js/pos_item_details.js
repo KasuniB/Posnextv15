@@ -277,74 +277,75 @@ init_component() {
             this.discount_percentage_control.refresh();
         }
 
-        if (this.warehouse_control) {
-            this.warehouse_control.df.reqd = 1;
-            this.warehouse_control.df.onchange = function() {
-                if (this.value) {
-                    // Update warehouse directly
-                    frappe.model.set_value(me.doctype, me.name, 'warehouse', this.value);
-                    me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
-                        me.item_stock_map = me.events.get_item_stock_map();
-                        if (!me.item_stock_map[me.item_row.item_code]) {
-                            me.item_stock_map[me.item_row.item_code] = {};
-                        }
-                        if (!me.item_stock_map[me.item_row.item_code][this.value]) {
-                            me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
-                                const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
-                                const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
-                                if (available_qty === 0 && is_stock_item) {
-                                    frappe.show_alert({
-                                        message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
-                                        indicator: 'orange'
-                                    });
-                                    // Allow selection but warn user
-                                    me.actual_qty_control.set_value(available_qty);
-                                } else {
-                                    me.actual_qty_control.set_value(available_qty);
-                                }
+if (this.warehouse_control) {
+    this.warehouse_control.df.reqd = 1;
+    this.warehouse_control.df.onchange = function() {
+        if (this.value) {
+            // Update warehouse directly
+            frappe.model.set_value(me.doctype, me.name, 'warehouse', this.value);
+            me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
+                me.item_stock_map = me.events.get_item_stock_map();
+                if (!me.item_stock_map[me.item_row.item_code]) {
+                    me.item_stock_map[me.item_row.item_code] = {};
+                }
+                if (!me.item_stock_map[me.item_row.item_code][this.value]) {
+                    me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+                        const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
+                        const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
+                        if (available_qty === 0 && is_stock_item) {
+                            frappe.show_alert({
+                                message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
+                                indicator: 'orange'
                             });
+                            // Allow selection but warn user
+                            me.actual_qty_control.set_value(available_qty);
                         } else {
-                            const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
-                            const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
-                            if (available_qty === 0 && is_stock_item) {
-                                frappe.show_alert({
-                                    message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
-                                    indicator: 'orange'
-                                });
-                                // Allow selection but warn user
-                                me.actual_qty_control.set_value(available_qty);
-                            } else {
-                                me.actual_qty_control.set_value(available_qty);
-                            }
+                            me.actual_qty_control.set_value(available_qty);
                         }
                     });
-                }
-            };
-            this.warehouse_control.df.get_query = () => {
-                const frm = this.events.get_frm();
-                let parent_warehouse = this.settings?.warehouse;
-                if (!parent_warehouse && frm?.doc?.pos_profile) {
-                    parent_warehouse = frappe.get_cached_value('POS Profile', frm.doc.pos_profile, 'warehouse');
-                    console.warn('ItemDetails: Fallback to POS Profile warehouse:', parent_warehouse);
-                }
-                if (!parent_warehouse) {
-                    console.warn('ItemDetails: No parent warehouse available. Returning empty query.');
-                    return { filters: {} };
-                }
-                return {
-                    query: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
-                    filters: {
-                        company: frm?.doc?.company || '',
-                        parent_warehouse: parent_warehouse,
-                        item_code: this.current_item.item_code
+                } else {
+                    const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
+                    const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
+                    if (available_qty === 0 && is_stock_item) {
+                        frappe.show_alert({
+                            message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
+                            indicator: 'orange'
+                        });
+                        // Allow selection but warn user
+                        me.actual_qty_control.set_value(available_qty);
+                    } else {
+                        me.actual_qty_control.set_value(available_qty);
                     }
-                };
-            };
-            this.warehouse_control.df.format_for_dropdown = function(item) {
-                return item.value; // Prevent splitting of warehouse name
-            };
-            this.warehouse_control.refresh();
+                }
+            });
         }
+    };
+    
+    // Fixed get_query function
+    this.warehouse_control.df.get_query = () => {
+        const frm = this.events.get_frm();
+        let parent_warehouse = this.settings?.warehouse;
+        if (!parent_warehouse && frm?.doc?.pos_profile) {
+            parent_warehouse = frappe.get_cached_value('POS Profile', frm.doc.pos_profile, 'warehouse');
+            console.warn('ItemDetails: Fallback to POS Profile warehouse:', parent_warehouse);
+        }
+        if (!parent_warehouse) {
+            console.warn('ItemDetails: No parent warehouse available. Returning empty query.');
+            return { filters: {} };
+        }
+        
+        return {
+            query: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
+            filters: {
+                company: frm?.doc?.company || '',
+                parent_warehouse: parent_warehouse,
+                item_code: this.current_item.item_code
+            }
+        };
+    };
+      
+    this.warehouse_control.refresh();
+}
 
         if (this.serial_no_control) {
             this.serial_no_control.df.reqd = 1;
