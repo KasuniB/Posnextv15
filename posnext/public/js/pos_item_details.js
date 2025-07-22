@@ -8,48 +8,52 @@ posnext.PointOfSale.ItemDetails = class {
 		this.allow_discount_change = settings.allow_discount_change;
 		this.custom_edit_rate_and_uom = settings.custom_edit_rate_and_uom;
 		this.current_item = {};
+		this.use_discount_amount = 1; // Default to discount amount
+		this.settings = settings; // Store settings reference
 
 		this.init_component();
 	}
-init_component() {
-    const frm = this.events.get_frm();
-    if (!this.settings || !this.settings.warehouse) {
-        console.error('ItemDetails: Settings or warehouse missing:', this.settings);
-        if (frm?.doc?.pos_profile) {
-            frappe.db.get_value('POS Profile', frm.doc.pos_profile, 'warehouse').then(({ message }) => {
-                if (message.warehouse) {
-                    this.settings = this.settings || {};
-                    this.settings.warehouse = message.warehouse;
-                    console.log('ItemDetails: Fetched warehouse from POS Profile:', this.settings.warehouse);
-                    this.prepare_dom();
-                    this.init_child_components();
-                    this.bind_events();
-                    this.attach_shortcuts();
-                } else {
-                    console.warn('ItemDetails: No warehouse in POS Profile:', frm.doc.pos_profile);
-                    this.settings = this.settings || {};
-                    this.prepare_dom();
-                    this.init_child_components();
-                    this.bind_events();
-                    this.attach_shortcuts();
-                }
-            });
-        } else {
-            console.warn('ItemDetails: POS Profile not set in Sales Invoice. Initializing without warehouse.');
-            this.settings = this.settings || {};
-            this.prepare_dom();
-            this.init_child_components();
-            this.bind_events();
-            this.attach_shortcuts();
-        }
-        return;
-    }
-    console.log('ItemDetails initialized with settings:', this.settings);
-    this.prepare_dom();
-    this.init_child_components();
-    this.bind_events();
-    this.attach_shortcuts();
-}
+
+	init_component() {
+		const frm = this.events.get_frm();
+		if (!this.settings || !this.settings.warehouse) {
+			console.error('ItemDetails: Settings or warehouse missing:', this.settings);
+			if (frm?.doc?.pos_profile) {
+				frappe.db.get_value('POS Profile', frm.doc.pos_profile, 'warehouse').then(({ message }) => {
+					if (message.warehouse) {
+						this.settings = this.settings || {};
+						this.settings.warehouse = message.warehouse;
+						console.log('ItemDetails: Fetched warehouse from POS Profile:', this.settings.warehouse);
+						this.prepare_dom();
+						this.init_child_components();
+						this.bind_events();
+						this.attach_shortcuts();
+					} else {
+						console.warn('ItemDetails: No warehouse in POS Profile:', frm.doc.pos_profile);
+						this.settings = this.settings || {};
+						this.prepare_dom();
+						this.init_child_components();
+						this.bind_events();
+						this.attach_shortcuts();
+					}
+				});
+			} else {
+				console.warn('ItemDetails: POS Profile not set in Sales Invoice. Initializing without warehouse.');
+				this.settings = this.settings || {};
+				this.prepare_dom();
+				this.init_child_components();
+				this.bind_events();
+				this.attach_shortcuts();
+			}
+			return;
+		}
+		console.log('ItemDetails initialized with settings:', this.settings);
+		this.prepare_dom();
+		this.init_child_components();
+		this.bind_events();
+		this.attach_shortcuts();
+	}
+
 	prepare_dom() {
 		this.wrapper.append(
 			`<section class="item-details-container" id="item-details-container"></section>`
@@ -61,7 +65,7 @@ init_component() {
 	init_child_components() {
 		this.$component.html(
 			`<div class="item-details-header">
-				<div class="label">${__('Item Detailss')}</div>
+				<div class="label">${__('Item Details')}</div>
 				<div class="close-btn">
 					<svg width="32" height="32" viewBox="0 0 14 14" fill="none">
 						<path d="M4.93764 4.93759L7.00003 6.99998M9.06243 9.06238L7.00003 6.99998M7.00003 6.99998L4.93764 9.06238L9.06243 4.93759" stroke="#8D99A6"/>
@@ -77,6 +81,7 @@ init_component() {
 				<div class="item-image"></div>
 			</div>
 			<div class="discount-section"></div>
+			<div class="discount-applied-display"></div>
 			<div class="form-container"></div>
 			<div class="serial-batch-container"></div>`
 		)
@@ -87,6 +92,7 @@ init_component() {
 		this.$item_image = this.$component.find('.item-image');
 		this.$form_container = this.$component.find('.form-container');
 		this.$dicount_section = this.$component.find('.discount-section');
+		this.$discount_applied_display = this.$component.find('.discount-applied-display');
 		this.$serial_batch_container = this.$component.find('.serial-batch-container');
 	}
 
@@ -124,6 +130,7 @@ init_component() {
 			this.render_dom(item);
 			this.render_discount_dom(item);
 			this.render_form(item);
+			this.render_discount_applied_display(item);
 			this.events.highlight_cart_item(item);
 		} else {
 			this.current_item = {};
@@ -175,7 +182,6 @@ init_component() {
 		} else {
 			this.$item_image.html(`<div class="item-abbr">${frappe.get_abbr(item_name)}</div>`);
 		}
-
 	}
 
 	handle_broken_image($img) {
@@ -184,15 +190,47 @@ init_component() {
 	}
 
 	render_discount_dom(item) {
-		if (item.discount_percentage) {
+		if (item.discount_percentage || item.discount_amount) {
+			let discount_text = '';
+			if (item.discount_percentage) {
+				discount_text = `${item.discount_percentage}% off`;
+			} else if (item.discount_amount) {
+				discount_text = `${format_currency(item.discount_amount, this.currency)} off`;
+			}
+			
 			this.$dicount_section.html(
 				`<div class="item-rate">${format_currency(item.price_list_rate, this.currency)}</div>
-				<div class="item-discount">${item.discount_percentage}% off</div>`
+				<div class="item-discount">${discount_text}</div>`
 			)
 			this.$item_price.html(format_currency(item.rate, this.currency));
 		} else {
 			this.$dicount_section.html(``)
 		}
+	}
+
+	render_discount_applied_display(item) {
+		const discount_amount = this.calculate_discount_amount(item);
+		
+		if (discount_amount > 0) {
+			this.$discount_applied_display.html(
+				`<div class="discount-applied-info" style="background: #f8f9fa; padding: 8px; border-radius: 4px; margin: 8px 0;">
+					<div style="font-weight: 600; color: #28a745; font-size: 14px;">
+						${format_currency(discount_amount, this.currency)} off applied
+					</div>
+				</div>`
+			);
+		} else {
+			this.$discount_applied_display.html('');
+		}
+	}
+
+	calculate_discount_amount(item) {
+		if (item.discount_amount) {
+			return item.discount_amount;
+		} else if (item.discount_percentage) {
+			return (item.price_list_rate * item.discount_percentage / 100);
+		}
+		return 0;
 	}
 
 	render_form(item) {
@@ -205,17 +243,32 @@ init_component() {
 			)
 
 			const field_meta = this.item_meta.fields.find(df => df.fieldname === fieldname);
-			fieldname === 'discount_percentage' ? (field_meta.label = __('Discount (%)')) : '';
+			
+			// Handle discount field labels
+			if (fieldname === 'discount_percentage') {
+				field_meta.label = this.use_discount_amount ? __('Discount Amount') : __('Discount (%)');
+			}
+			
 			const me = this;
 			var uoms = []
 			frappe.db.get_doc("Item",me.current_item.item_code).then(doc => {
 				uoms = doc.uoms.map(item => item.uom);
 			})
+			
 			this[`${fieldname}_control`] = frappe.ui.form.make_control({
 				df: {
 					...field_meta,
 					onchange: function() {
-						me.events.form_updated(me.current_item, fieldname, this.value);
+						if (fieldname === 'discount_percentage') {
+							// Handle discount change based on current mode
+							if (me.use_discount_amount) {
+								me.events.form_updated(me.current_item, 'discount_amount', this.value);
+							} else {
+								me.events.form_updated(me.current_item, 'discount_percentage', this.value);
+							}
+						} else {
+							me.events.form_updated(me.current_item, fieldname, this.value);
+						}
 					},
 					get_query:function () {
 						if(fieldname === 'uom'){
@@ -226,17 +279,68 @@ init_component() {
 							}
 						}
 						return
-                    }
+					}
 				},
 				parent: this.$form_container.find(`.${fieldname}-control`),
 				render_input: true,
 			})
-			this[`${fieldname}_control`].set_value(item[fieldname]);
+			
+			// Set the appropriate value based on discount mode
+			if (fieldname === 'discount_percentage') {
+				const value = this.use_discount_amount ? (item.discount_amount || 0) : (item.discount_percentage || 0);
+				this[`${fieldname}_control`].set_value(value);
+			} else {
+				this[`${fieldname}_control`].set_value(item[fieldname]);
+			}
 		});
 
+		// Add discount toggle checkbox
+		this.add_discount_toggle_checkbox();
 		this.make_auto_serial_selection_btn(item);
-
 		this.bind_custom_control_change_event();
+	}
+
+	add_discount_toggle_checkbox() {
+		const discount_control_wrapper = this.$form_container.find('.discount_percentage-control');
+		if (discount_control_wrapper.length) {
+			// Add checkbox above discount field
+			discount_control_wrapper.prepend(`
+				<div class="discount-toggle-wrapper" style="margin-bottom: 8px;">
+					<label class="discount-toggle-label" style="display: flex; align-items: center; font-size: 12px; cursor: pointer;">
+						<input type="checkbox" class="discount-amount-checkbox" ${this.use_discount_amount ? 'checked' : ''} style="margin-right: 6px;">
+						<span>${__('Use discount amount')}</span>
+					</label>
+				</div>
+			`);
+
+			// Bind checkbox change event
+			discount_control_wrapper.find('.discount-amount-checkbox').on('change', (e) => {
+				this.use_discount_amount = e.target.checked ? 1 : 0;
+				this.toggle_discount_mode();
+			});
+		}
+	}
+
+	toggle_discount_mode() {
+		const current_value = this.discount_percentage_control.get_value() || 0;
+		const item = this.current_item;
+		
+		// Update field label
+		const new_label = this.use_discount_amount ? __('Discount Amount') : __('Discount (%)');
+		this.discount_percentage_control.df.label = new_label;
+		this.discount_percentage_control.refresh();
+		
+		// Convert and set value
+		let new_value = 0;
+		if (this.use_discount_amount) {
+			// Converting from percentage to amount
+			new_value = current_value > 0 ? (item.price_list_rate * current_value / 100) : 0;
+		} else {
+			// Converting from amount to percentage  
+			new_value = current_value > 0 && item.price_list_rate > 0 ? (current_value / item.price_list_rate * 100) : 0;
+		}
+		
+		this.discount_percentage_control.set_value(new_value);
 	}
 
 	get_form_fields(item) {
@@ -255,141 +359,146 @@ init_component() {
 			this.$form_container.find('.serial_no-control').find('textarea').css('height', '6rem');
 		}
 	}
-    bind_custom_control_change_event() {
-        const me = this;
-        if (this.rate_control) {
-            this.rate_control.df.onchange = function() {
-                if (this.value || flt(this.value) === 0) {
-                    me.events.form_updated(me.current_item, 'rate', this.value).then(() => {
-                        const item_row = frappe.get_doc(me.doctype, me.name);
-                        const doc = me.events.get_frm().doc;
-                        me.$item_price.html(format_currency(item_row.rate, doc.currency));
-                        me.render_discount_dom(item_row);
-                    });
-                }
-            };
-            this.rate_control.df.read_only = !this.allow_rate_change;
-            this.rate_control.refresh();
-        }
 
-        if (this.discount_percentage_control && !this.allow_discount_change) {
-            this.discount_percentage_control.df.read_only = 1;
-            this.discount_percentage_control.refresh();
-        }
+	bind_custom_control_change_event() {
+		const me = this;
+		if (this.rate_control) {
+			this.rate_control.df.onchange = function() {
+				if (this.value || flt(this.value) === 0) {
+					me.events.form_updated(me.current_item, 'rate', this.value).then(() => {
+						const item_row = frappe.get_doc(me.doctype, me.name);
+						const doc = me.events.get_frm().doc;
+						me.$item_price.html(format_currency(item_row.rate, doc.currency));
+						me.render_discount_dom(item_row);
+						me.render_discount_applied_display(item_row);
+					});
+				}
+			};
+			this.rate_control.df.read_only = !this.allow_rate_change;
+			this.rate_control.refresh();
+		}
 
-if (this.warehouse_control) {
-    this.warehouse_control.df.reqd = 1;
-    this.warehouse_control.df.onchange = function() {
-        if (this.value) {
-            // Update warehouse directly
-            frappe.model.set_value(me.doctype, me.name, 'warehouse', this.value);
-            me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
-                me.item_stock_map = me.events.get_item_stock_map();
-                if (!me.item_stock_map[me.item_row.item_code]) {
-                    me.item_stock_map[me.item_row.item_code] = {};
-                }
-                if (!me.item_stock_map[me.item_row.item_code][this.value]) {
-                    me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
-                        const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
-                        const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
-                        if (available_qty === 0 && is_stock_item) {
-                            frappe.show_alert({
-                                message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
-                                indicator: 'orange'
-                            });
-                            // Allow selection but warn user
-                            me.actual_qty_control.set_value(available_qty);
-                        } else {
-                            me.actual_qty_control.set_value(available_qty);
-                        }
-                    });
-                } else {
-                    const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
-                    const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
-                    if (available_qty === 0 && is_stock_item) {
-                        frappe.show_alert({
-                            message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
-                            indicator: 'orange'
-                        });
-                        // Allow selection but warn user
-                        me.actual_qty_control.set_value(available_qty);
-                    } else {
-                        me.actual_qty_control.set_value(available_qty);
-                    }
-                }
-            });
-        }
-    };
-    
-    // Fixed get_query function
-    this.warehouse_control.df.get_query = () => {
-        const frm = this.events.get_frm();
-        let parent_warehouse = this.settings?.warehouse;
-        if (!parent_warehouse && frm?.doc?.pos_profile) {
-            parent_warehouse = frappe.get_cached_value('POS Profile', frm.doc.pos_profile, 'warehouse');
-            console.warn('ItemDetails: Fallback to POS Profile warehouse:', parent_warehouse);
-        }
-        if (!parent_warehouse) {
-            console.warn('ItemDetails: No parent warehouse available. Returning empty query.');
-            return { filters: {} };
-        }
-        
-        return {
-            query: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
-            filters: {
-                company: frm?.doc?.company || '',
-                parent_warehouse: parent_warehouse,
-                item_code: this.current_item.item_code
-            }
-        };
-    };
-      
-    this.warehouse_control.refresh();
-}
+		if (this.discount_percentage_control && !this.allow_discount_change) {
+			this.discount_percentage_control.df.read_only = 1;
+			this.discount_percentage_control.refresh();
+		}
 
-        if (this.serial_no_control) {
-            this.serial_no_control.df.reqd = 1;
-            this.serial_no_control.df.onchange = async function() {
-                !me.current_item.batch_no && await me.auto_update_batch_no();
-                me.events.form_updated(me.current_item, 'serial_no', this.value);
-            };
-            this.serial_no_control.refresh();
-        }
+		if (this.warehouse_control) {
+			this.warehouse_control.df.reqd = 1;
+			this.warehouse_control.df.onchange = function() {
+				if (this.value) {
+					// Update warehouse directly
+					frappe.model.set_value(me.doctype, me.name, 'warehouse', this.value);
+					me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
+						me.item_stock_map = me.events.get_item_stock_map();
+						if (!me.item_stock_map[me.item_row.item_code]) {
+							me.item_stock_map[me.item_row.item_code] = {};
+						}
+						if (!me.item_stock_map[me.item_row.item_code][this.value]) {
+							me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+								const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
+								const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
+								if (available_qty === 0 && is_stock_item) {
+									frappe.show_alert({
+										message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
+										indicator: 'orange'
+									});
+									// Allow selection but warn user
+									me.actual_qty_control.set_value(available_qty);
+								} else {
+									me.actual_qty_control.set_value(available_qty);
+								}
+							});
+						} else {
+							const available_qty = me.item_stock_map[me.item_row.item_code][this.value]?.[0] || 0;
+							const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value]?.[1]);
+							if (available_qty === 0 && is_stock_item) {
+								frappe.show_alert({
+									message: __('Item Code: {0} has no stock in warehouse {1}.', [me.item_row.item_code.bold(), this.value.bold()]),
+									indicator: 'orange'
+								});
+								// Allow selection but warn user
+								me.actual_qty_control.set_value(available_qty);
+							} else {
+								me.actual_qty_control.set_value(available_qty);
+							}
+						}
+					});
+				}
+			};
+			
+			// Fixed get_query function
+			this.warehouse_control.df.get_query = () => {
+				const frm = this.events.get_frm();
+				let parent_warehouse = this.settings?.warehouse;
+				if (!parent_warehouse && frm?.doc?.pos_profile) {
+					parent_warehouse = frappe.get_cached_value('POS Profile', frm.doc.pos_profile, 'warehouse');
+					console.warn('ItemDetails: Fallback to POS Profile warehouse:', parent_warehouse);
+				}
+				if (!parent_warehouse) {
+					console.warn('ItemDetails: No parent warehouse available. Returning empty query.');
+					return { filters: {} };
+				}
+				
+				return {
+					query: 'posnext.posnext.page.posnext.point_of_sale.get_warehouses_with_stock',
+					filters: {
+						company: frm?.doc?.company || '',
+						parent_warehouse: parent_warehouse,
+						item_code: this.current_item.item_code
+					}
+				};
+			};
+			  
+			this.warehouse_control.refresh();
+		}
 
-        if (this.batch_no_control) {
-            this.batch_no_control.df.reqd = 1;
-            this.batch_no_control.df.get_query = () => {
-                return {
-                    query: 'erpnext.controllers.queries.get_batch_no',
-                    filters: {
-                        item_code: me.item_row.item_code,
-                        warehouse: me.item_row.warehouse,
-                        posting_date: me.events.get_frm().doc.posting_date
-                    }
-                };
-            };
-            this.batch_no_control.refresh();
-        }
+		if (this.serial_no_control) {
+			this.serial_no_control.df.reqd = 1;
+			this.serial_no_control.df.onchange = async function() {
+				!me.current_item.batch_no && await me.auto_update_batch_no();
+				me.events.form_updated(me.current_item, 'serial_no', this.value);
+			};
+			this.serial_no_control.refresh();
+		}
 
-        if (this.uom_control) {
-            this.uom_control.df.onchange = function() {
-                me.events.form_updated(me.current_item, 'uom', this.value);
-                const item_row = frappe.get_doc(me.doctype, me.name);
-                me.conversion_factor_control.df.read_only = (item_row.stock_uom == this.value);
-                me.conversion_factor_control.refresh();
-            };
-        }
+		if (this.batch_no_control) {
+			this.batch_no_control.df.reqd = 1;
+			this.batch_no_control.df.get_query = () => {
+				return {
+					query: 'erpnext.controllers.queries.get_batch_no',
+					filters: {
+						item_code: me.item_row.item_code,
+						warehouse: me.item_row.warehouse,
+						posting_date: me.events.get_frm().doc.posting_date
+					}
+				};
+			};
+			this.batch_no_control.refresh();
+		}
 
-        frappe.model.on("POS Invoice Item", "*", (fieldname, value, item_row) => {
-            const field_control = this[`${fieldname}_control`];
-            const item_row_is_being_edited = this.compare_with_current_item(item_row);
-            if (item_row_is_being_edited && field_control && field_control.get_value() !== value) {
-                field_control.set_value(value);
-                cur_pos.update_cart_html(item_row);
-            }
-        });
-    }
+		if (this.uom_control) {
+			this.uom_control.df.onchange = function() {
+				me.events.form_updated(me.current_item, 'uom', this.value);
+				const item_row = frappe.get_doc(me.doctype, me.name);
+				me.conversion_factor_control.df.read_only = (item_row.stock_uom == this.value);
+				me.conversion_factor_control.refresh();
+			};
+		}
 
+		frappe.model.on("POS Invoice Item", "*", (fieldname, value, item_row) => {
+			const field_control = this[`${fieldname}_control`];
+			const item_row_is_being_edited = this.compare_with_current_item(item_row);
+			if (item_row_is_being_edited && field_control && field_control.get_value() !== value) {
+				field_control.set_value(value);
+				cur_pos.update_cart_html(item_row);
+				// Update discount display when discount values change
+				if (fieldname === 'discount_percentage' || fieldname === 'discount_amount') {
+					me.render_discount_applied_display(item_row);
+				}
+			}
+		});
+	}
 
 	async auto_update_batch_no() {
 		if (this.serial_no_control && this.batch_no_control) {
